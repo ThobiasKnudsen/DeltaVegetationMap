@@ -11,6 +11,26 @@ The tool downloads the data it needs automatically and caches it locally.
 > **not** vegetation height or structure — NDVI can't measure those. For canopy height you'd
 > need a different product (e.g. GEDI / global canopy-height maps) and a different tool.
 
+## Examples
+
+Two **within-era** comparisons — each kept on one side of the AVHRR→MODIS seam (~2002/2003), so
+neither carries cross-sensor bias. Blue is cropland (ESA CCI/C3S), blended to read **cyan over
+greening** and **magenta over browning**; the sidebar splits every figure into farmland vs.
+non-farmland.
+
+**Early era · 1982–1986 → 1998–2002** (both AVHRR). Net greening **+0.0056** NDVI, with 79% of the
+area×magnitude change greening. Cropland greens about twice as fast (**+0.0092**, 85% greening) as
+everything else (**+0.0048**, 77%) — irrigation and agricultural intensification. *(The cropland
+layer starts in 1992, so the pre-1992 window reuses 1992 land cover — the app flags this.)*
+
+![Global ΔNDVI, 1982–1986 vs 1998–2002, area-weighted mean +0.0056](images/1982-1986_to_1998-2002_mean_0.0056.png)
+
+**Recent era · 2003–2007 → 2018–2022** (both MODIS). Net greening **+0.0108** — roughly double the
+early-era rate, consistent with accelerating global greening — but with more browning too (26% vs.
+21%). Farmland again leads: **+0.0168** vs. **+0.0093** off-farm.
+
+![Global ΔNDVI, 2003–2007 vs 2018–2022, area-weighted mean +0.0108](images/2003-2007_to_2018-2022_mean_0.0108.png)
+
 ## Data
 
 [**PKU GIMMS NDVI v1.2**](https://doi.org/10.5281/zenodo.8253971) (Li et al. 2023,
