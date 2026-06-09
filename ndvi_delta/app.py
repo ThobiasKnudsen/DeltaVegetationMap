@@ -55,12 +55,12 @@ def stack_meta(stack_path: str):
     return {"years": years, "built_years": [years[i] for i in built], "version": root.attrs.get("version")}
 
 
-MERC_SIZE = 6000  # Web Mercator overlay resolution (px); above native 4320 so regional zoom stays sharp
+MERC_SIZE = 3000  # Web Mercator overlay resolution (px)
 
 
 @st.cache_data(show_spinner="Computing ΔNDVI…", max_entries=16)
-def compute(stack_path, pa, pb, fill_mode, mask_sparse, thr, fade_qc):
-    res = compute_delta(stack_path, pa, pb, fill_mode=fill_mode, mask_sparse=mask_sparse, sparse_threshold=thr)
+def compute(stack_path, pa, pb, fade_qc):
+    res = compute_delta(stack_path, pa, pb, fill_mode="zero", mask_sparse=False)
     vlim = render.robust_limit(res.delta)
     # Reproject to Web Mercator so the overlay aligns with the Leaflet (EPSG:3857) basemap.
     merc_delta, bounds = render.reproject_to_web_mercator(res.delta, res.transform_origin, size=MERC_SIZE)
@@ -144,13 +144,6 @@ def main():
             "Residual inter-sensor bias is the main uncertainty for cross-seam deltas."
         )
 
-    fill_mode = sb.radio(
-        "Fill handling", ["zero", "drop"], horizontal=True,
-        help="zero: count dormant/snow half-months as 0 — captures growing-season change (default). "
-             "drop: average greenness only when green.",
-    )
-    mask_sparse = sb.checkbox("Mask sparse vegetation", value=True)
-    thr = sb.number_input("Sparse threshold (NDVI)", 0.0, 0.5, 0.1, 0.01, disabled=not mask_sparse)
     delta_opacity = sb.slider("ΔNDVI opacity", 0.0, 1.0, 0.85, 0.05)
     fade_qc = sb.checkbox(
         "Fade unreliable data (QC)", value=False,
@@ -158,9 +151,7 @@ def main():
              "pixels fade toward the basemap instead of showing at full strength.",
     )
 
-    delta_uri, vlim, bounds, stats = compute(
-        STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr), fade_qc
-    )
+    delta_uri, vlim, bounds, stats = compute(STACK_PATH, tuple(pa), tuple(pb), fade_qc)
     south, west, north, east = bounds
 
     # ---- Stats + legend (sidebar) ----
@@ -199,13 +190,27 @@ def main():
             "latitudes (no Antarctica)."
         )
 
-    # ---- Full-screen map (main area) ----
-    m = folium.Map(location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True)
+    # ---- Full-screen map (main area): finer zoom step + a view that persists across reruns ----
+    if "center" not in st.session_state:
+        st.session_state["center"], st.session_state["zoom"] = [25, 5], 3.0
+    m = folium.Map(
+        location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
+        zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
+    )
     folium.raster_layers.ImageOverlay(
         image=delta_uri, bounds=[[south, west], [north, east]],
         opacity=delta_opacity, name="ΔNDVI (B − A)",
     ).add_to(m)
-    st_folium(m, height=900, returned_objects=[], use_container_width=True)
+    out = st_folium(
+        m, key="ndvi_map", height=900, use_container_width=True,
+        center=st.session_state["center"], zoom=st.session_state["zoom"],
+        returned_objects=["center", "zoom"],
+    )
+    if out:
+        if out.get("center"):
+            st.session_state["center"] = [out["center"]["lat"], out["center"]["lng"]]
+        if out.get("zoom") is not None:
+            st.session_state["zoom"] = out["zoom"]
 
 
 main()
