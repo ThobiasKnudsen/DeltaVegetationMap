@@ -64,9 +64,16 @@ def aggregate_fraction(mask: np.ndarray, block: int = BLOCK) -> np.ndarray:
     return mask.reshape(h // block, block, w // block, block).mean(axis=(1, 3), dtype=np.float32)
 
 
-def _search_year(year: int, tries: int = 6, timeout: int = 90) -> list[dict]:
-    """All CCI/C3S land-cover tiles (STAC items) for *year*. Retries the occasionally-flaky
-    Planetary Computer API with backoff."""
+def _backoff(i: int, base: float, cap: float) -> float:
+    """Exponential backoff capped at *cap* seconds: base, 2·base, 4·base, … (no jitter needed —
+    the work is single-threaded so there's no thundering herd to spread out)."""
+    return min(cap, base * (2 ** i))
+
+
+def _search_year(year: int, tries: int = 8, timeout: int = 120) -> list[dict]:
+    """All CCI/C3S land-cover tiles (STAC items) for *year*. The Planetary Computer API returns
+    sporadic HTTP 504s under load, so retry generously (up to ~4 min total) to ride out a
+    rate-limit window rather than abort a long build."""
     body = {
         "collections": [COLLECTION],
         "datetime": f"{year}-01-01T00:00:00Z/{year}-12-31T23:59:59Z",
@@ -85,11 +92,11 @@ def _search_year(year: int, tries: int = 6, timeout: int = 90) -> list[dict]:
                 last = f"HTTP {r.status_code}"
         except requests.RequestException as e:
             last = repr(e)
-        time.sleep(3 * (i + 1))
-    raise IOError(f"Planetary Computer STAC search for {year} failed: {last}")
+        time.sleep(_backoff(i, base=5, cap=60))
+    raise IOError(f"Planetary Computer STAC search for {year} failed after {tries} tries: {last}")
 
 
-def _sign(href: str, tries: int = 4, timeout: int = 30) -> str:
+def _sign(href: str, tries: int = 6, timeout: int = 30) -> str:
     """Sign a Planetary Computer asset href for anonymous read (no account needed)."""
     last = None
     for i in range(tries):
@@ -100,11 +107,11 @@ def _sign(href: str, tries: int = 4, timeout: int = 30) -> str:
             last = f"HTTP {r.status_code}"
         except requests.RequestException as e:
             last = repr(e)
-        time.sleep(2 * (i + 1))
-    raise IOError(f"Planetary Computer signing failed ({last}) for {href}")
+        time.sleep(_backoff(i, base=3, cap=30))
+    raise IOError(f"Planetary Computer signing failed after {tries} tries ({last}) for {href}")
 
 
-def _read_tile(feat: dict, read_window: Window | None = None, tries: int = 4) -> np.ndarray:
+def _read_tile(feat: dict, read_window: Window | None = None, tries: int = 5) -> np.ndarray:
     """Sign and stream one tile's ``lccs_class`` band, retrying transient network / GDAL errors
     (and re-signing each attempt, in case a SAS token expired during a long build)."""
     last = None
@@ -115,7 +122,7 @@ def _read_tile(feat: dict, read_window: Window | None = None, tries: int = 4) ->
                 return ds.read(1, window=read_window)
         except Exception as e:  # noqa: BLE001 — rasterio/GDAL + network errors; retry then re-raise
             last = e
-            time.sleep(3 * (i + 1))
+            time.sleep(_backoff(i, base=4, cap=45))
     raise IOError(f"Failed to read tile {feat.get('id')}: {last!r}")
 
 
