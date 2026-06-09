@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Project: NDVI delta tool ---
+# Downloaded decade zips + precomputed annual stack (large binaries)
+data/
+# Generated GeoTIFF / PNG map outputs
+out/
+*.zip
+*.zarr/
+*.nc
