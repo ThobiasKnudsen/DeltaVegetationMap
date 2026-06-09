@@ -1,0 +1,18 @@
+# Core pipeline
+numpy>=1.24
+rasterio>=1.3        # bundles GDAL wheels -> easy cross-platform install
+requests>=2.28
+tqdm>=4.65
+matplotlib>=3.7
+
+# Cached annual stack (chunked, compressed, lazy slicing)
+xarray>=2023.6
+zarr>=2.16
+
+# Interactive UI: Streamlit shell + Leaflet map
+streamlit>=1.30
+folium>=0.15
+streamlit-folium>=0.18
+
+# Optional: trend mode (Theil-Sen slope + Mann-Kendall significance)
+# pymannkendall>=1.4
