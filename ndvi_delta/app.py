@@ -133,6 +133,9 @@ def main():
           [data-testid="stToolbar"] {display: none;}
           .block-container {padding: 0.4rem 0.6rem 0 0.6rem; max-width: 100%;}
           .stApp iframe {height: 93vh !important; width: 100% !important;}
+          /* Don't dim the page (Streamlit's "stale" fade to 33% opacity) while a data
+             update re-runs — keep everything at full opacity. */
+          [data-stale="true"] {opacity: 1 !important; transition: none !important;}
         </style>
         """,
         unsafe_allow_html=True,
