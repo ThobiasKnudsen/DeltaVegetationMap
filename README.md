@@ -27,17 +27,34 @@ sensors yourself; this product exists to avoid exactly that.
 | Versions | `consolidated` AVHRR+MODIS 1982–2022 (default); `avhrr` only 1982–2015 |
 | Licence | CC-BY-4.0 |
 
+## Requirements
+
+* **Python 3.9+** (developed and tested on 3.13).
+* **~5 GB** free disk for the NDVI stack — plus several GB more if you add the optional cropland layer.
+* Linux, macOS, or Windows. `rasterio` ships GDAL wheels, so there's no separate GDAL install.
+
 ## Install
 
 ```bash
+git clone https://github.com/ThobiasKnudsen/DeltaVegetationMap.git
+cd DeltaVegetationMap
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+> Run every `python -m ndvi_delta …` command **from the repository root** — the package isn't
+> installed system-wide, so it's found via the current directory.
+
+Optionally verify the install (no network or data needed):
+
+```bash
+python -m unittest discover -s tests
 ```
 
 ## Quick start
 
 ```bash
-# 1) one-time global precompute: downloads ~2.7 GB and builds the per-year stack (~5 min CPU)
+# 1) one-time global precompute: downloads ~2.7 GB, then builds the per-year stack (a few min CPU)
 python -m ndvi_delta build
 
 # 1b) OPTIONAL: add the ESA CCI/C3S cropland layer (per-year, 1992–2020) for the blue
@@ -51,7 +68,8 @@ python -m ndvi_delta app
 python -m ndvi_delta delta --period-a 1983 1987 --period-b 2018 2022
 ```
 
-`delta`/`app` auto-build the stack on first use if it's missing.
+`delta` auto-builds the stack on first use if it's missing; `app` instead tells you to run
+`build` first.
 
 ## How it works (and why)
 
