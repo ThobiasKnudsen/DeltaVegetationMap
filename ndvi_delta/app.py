@@ -146,6 +146,10 @@ def main():
           /* Don't dim the page (Streamlit's "stale" fade to 33% opacity) while a data
              update re-runs — keep everything at full opacity. */
           [data-stale="true"] {opacity: 1 !important; transition: none !important;}
+          /* Compact the sidebar so all settings + stats fit in one view: shrink the gap
+             between widgets and trim the sidebar's top padding. */
+          section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {gap: 0.45rem !important;}
+          section[data-testid="stSidebar"] .block-container {padding-top: 1.2rem !important;}
         </style>
         """,
         unsafe_allow_html=True,
@@ -226,41 +230,24 @@ def main():
     south, west, north, east = bounds
 
     # ---- Stats + legend (sidebar) ----
-    sb.divider()
     if stats.get("valid_pixels", 0):
-        sb.metric(
-            "Area-weighted mean Δ",
-            f"{stats['area_weighted_mean_delta']:+.4f}",
-            help="Average greenness change across all visible land, with each pixel weighted by "
-            "its true ground area (cos-latitude) so large high-latitude pixels don't count for "
-            "more than they actually cover. Positive = net greening, negative = net browning; "
-            "the value is in NDVI units (the index runs −1 to 1).",
-        )
-        sb.markdown(
-            f"**Share of total change** 🟢 {stats['greening_intensity_share']:.0f}% · "
-            f"🔴 {stats['browning_intensity_share']:.0f}%"
-        )
-        sb.caption(
-            f"mean greening +{stats['mean_greening']:.3f} · mean browning −{stats['mean_browning']:.3f}  \n"
-            f"{stats['valid_pixels']:,} px · median QC reliability {stats['median_reliability']:.2f}"
-        )
-        sb.caption(
-            "Of all the greenness change — each pixel weighted by its land area and by how much it "
-            "changed — this is the split between greening and browning."
-        )
+        rows = [("🌍 Total", stats)]
         if g["farmland_stats"] is not None:
-            sb.divider()
-            sb.caption("**Split by land use** — each pixel weighted by its cropland fraction:")
-            for label, s in (("🌾 Farmland", g["farmland_stats"]),
-                             ("🌳 Non-farmland", g["nonfarmland_stats"])):
-                if s.get("valid_pixels", 0):
-                    sb.markdown(
-                        f"**{label}** · mean Δ {s['area_weighted_mean_delta']:+.4f}  \n"
-                        f"share 🟢 {s['greening_intensity_share']:.0f}% · "
-                        f"🔴 {s['browning_intensity_share']:.0f}%"
-                    )
-                else:
-                    sb.caption(f"**{label}** — none in view")
+            rows += [("🌾 Farmland", g["farmland_stats"]),
+                     ("🌳 Non-farmland", g["nonfarmland_stats"])]
+        for label, s in rows:
+            if s.get("valid_pixels", 0):
+                sb.markdown(
+                    f"**{label}** · mean Δ {s['area_weighted_mean_delta']:+.4f} · "
+                    f"🟢 {s['greening_intensity_share']:.0f}% 🔴 {s['browning_intensity_share']:.0f}%"
+                )
+            else:
+                sb.caption(f"**{label}** — none in view")
+        note = ("**mean Δ** = area-weighted (cos-lat) mean change (+greening / −browning); "
+                "**🟢/🔴** = greening vs. browning share of the total land-area×magnitude change.")
+        if g["farmland_stats"] is not None:
+            note += " Farmland / Non-farmland weight each pixel by its cropland fraction."
+        sb.caption(f"{note}  \n{stats['valid_pixels']:,} px · median QC {stats['median_reliability']:.2f}")
     else:
         sb.info("No valid pixels — adjust periods or thresholds.")
 
