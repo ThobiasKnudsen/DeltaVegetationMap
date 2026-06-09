@@ -20,6 +20,13 @@ from rasterio.warp import Resampling, reproject
 _MERC_MAX = 20037508.342789244
 _MERC_LAT = 85.051128779806604
 
+# Diverging browning<->greening colormap: vivid red -> white -> vivid green. Endpoints are
+# kept bright (not dark) so the strongest values stay easy to read at the edges of the scale.
+DELTA_CMAP = colors.LinearSegmentedColormap.from_list(
+    "browning_greening",
+    ["#fa5252", "#ffc9c9", "#ffffff", "#b2f2bb", "#40c057"],
+)
+
 
 def robust_limit(delta: np.ndarray, pct: float = 99.0) -> float:
     """Symmetric color limit: the given percentile of |delta| (diverging maps centre at 0)."""
@@ -55,16 +62,16 @@ def reproject_to_web_mercator(values: np.ndarray, transform_origin, size: int = 
     return dst, (-_MERC_LAT, -180.0, _MERC_LAT, 180.0)
 
 
-def _to_rgba(values: np.ndarray, norm, cmap_name: str) -> np.ndarray:
-    """Map a float grid through (norm, cmap) to an (H, W, 4) uint8 RGBA, NaN -> transparent."""
-    cmap = matplotlib.colormaps[cmap_name].copy()
+def _to_rgba(values: np.ndarray, norm, cmap) -> np.ndarray:
+    """Map a float grid through (norm, cmap) to an (H, W, 4) uint8 RGBA, NaN -> transparent.
+    *cmap* may be a registered name or a Colormap instance."""
+    cmap = (matplotlib.colormaps[cmap] if isinstance(cmap, str) else cmap).copy()
     cmap.set_bad((0, 0, 0, 0))  # NaN fully transparent
-    rgba = cmap(norm(np.ma.masked_invalid(values)), bytes=True)
-    return rgba
+    return cmap(norm(np.ma.masked_invalid(values)), bytes=True)
 
 
-def delta_to_rgba(delta: np.ndarray, vlim: float | None = None, cmap: str = "BrBG") -> tuple[np.ndarray, float]:
-    """Diverging RGBA centred at 0 (brown<->green). Returns (rgba, vlim used)."""
+def delta_to_rgba(delta: np.ndarray, vlim: float | None = None, cmap=DELTA_CMAP) -> tuple[np.ndarray, float]:
+    """Diverging RGBA centred at 0 (red browning <-> green greening). Returns (rgba, vlim used)."""
     if vlim is None:
         vlim = robust_limit(delta)
     norm = colors.Normalize(vmin=-vlim, vmax=vlim)
@@ -118,7 +125,7 @@ def quicklook(
     path: str | Path,
     title: str,
     vlim: float | None = None,
-    cmap: str = "BrBG",
+    cmap=DELTA_CMAP,
     bounds: tuple[float, float, float, float] | None = None,
 ) -> Path:
     """Labeled PNG with a diverging colorbar centred at 0 (the headless CLI deliverable).

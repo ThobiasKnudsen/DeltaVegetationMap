@@ -86,9 +86,10 @@ def _crosses_seam(pa, pb) -> bool:
     return "mixed" in (ea, eb) or ea != eb
 
 
-def _colorbar_fig(vlim, label, cmap="BrBG", from_zero=False):
+def _colorbar_fig(vlim, label, cmap, from_zero=False):
     norm = colors.Normalize(0.0, vlim) if from_zero else colors.Normalize(-vlim, vlim)
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=matplotlib.colormaps[cmap])
+    cm = matplotlib.colormaps[cmap] if isinstance(cmap, str) else cmap
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cm)
     fig, ax = plt.subplots(figsize=(4, 0.45))
     fig.colorbar(sm, cax=ax, orientation="horizontal", label=label)
     ax.tick_params(labelsize=7)
@@ -167,8 +168,8 @@ def main():
 
     with col_side:
         st.subheader("ΔNDVI scale")
-        st.pyplot(_colorbar_fig(vlim, "ΔNDVI (B − A)", "BrBG"), clear_figure=True)
-        st.caption("teal = greening · brown = browning")
+        st.pyplot(_colorbar_fig(vlim, "ΔNDVI (B − A)", render.DELTA_CMAP), clear_figure=True)
+        st.caption("green = greening · red = browning")
         if show_qc:
             st.subheader("QC reliability veil")
             st.caption("Dark = low reliability (gap-filled / snow / cloud). "
