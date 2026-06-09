@@ -40,6 +40,10 @@ pip install -r requirements.txt
 # 1) one-time global precompute: downloads ~2.7 GB and builds the per-year stack (~5 min CPU)
 python -m ndvi_delta build
 
+# 1b) OPTIONAL: add the ESA CCI/C3S cropland layer (per-year, 1992–2020) for the blue
+#     farmland overlay + farmland-vs-natural stats. Heavy one-time download (several GB).
+python -m ndvi_delta build-cropland
+
 # 2) interactive map (Streamlit + Leaflet): pick periods, pan/zoom, toggle the QC overlay
 python -m ndvi_delta app
 
@@ -74,6 +78,15 @@ python -m ndvi_delta delta --period-a 1983 1987 --period-b 2018 2022
   (2003–2022). Deltas that straddle ~2002/2003 cross that seam; the app warns you. The product
   is engineered to be consistent across it, but residual inter-sensor bias is the dominant
   uncertainty for early-vs-late comparisons.
+* **Cropland overlay (optional).** A lot of "greening" is just agriculture (irrigation, cropland
+  expansion), which confounds the natural signal. `build-cropland` adds a per-year **cropland
+  fraction** from [ESA CCI / C3S Land Cover](https://cds.climate.copernicus.eu/) (300 m, annual
+  1992–2020, read as Cloud-Optimized GeoTIFFs from the Microsoft Planetary Computer — anonymous,
+  no account). It aggregates to the NDVI grid (each pixel is a clean 30×30 block, no
+  reprojection). The app draws cropland in **blue** (solid = cropland in *both* periods, faint =
+  in only one — newly farmed or abandoned), with its own opacity slider, and **splits the stats
+  into farmland vs. non-farmland** so you can see how much of the change is agricultural. Periods
+  before 1992 reuse the nearest available land-cover year (the app flags this).
 * **Stats** are reported both raw and **area-weighted by cos(latitude)** so high-latitude pixels
   don't dominate.
 
@@ -82,6 +95,9 @@ python -m ndvi_delta delta --period-a 1983 1987 --period-b 2018 2022
 ```
 python -m ndvi_delta build  [--years 1982-2022] [--version consolidated|avhrr]
                             [--data-dir DIR] [--verify-md5]
+
+python -m ndvi_delta build-cropland  [--years 1992-2020] [--data-dir DIR]
+                            # adds the ESA CCI/C3S cropland layer to an existing stack
 
 python -m ndvi_delta delta  --period-a START END  --period-b START END
                             [--bbox MINLON MINLAT MAXLON MAXLAT]
@@ -113,3 +129,13 @@ python -m ndvi_delta app    [--version ...] [--data-dir ...]
   is not yet implemented (the annual stack has no within-year breakdown).
 * A Theil–Sen / Mann–Kendall **trend mode** (more robust to endpoint choice than a two-window
   delta) is a planned addition.
+* **Cropland** uses ESA CCI/C3S Land Cover, which is annual **1992–2020** only; periods outside
+  that reuse the nearest available year. Only *cropland* is distinguished (not pasture/rangeland,
+  which global land-cover products don't separate reliably).
+
+## Data attribution
+
+* **NDVI** — PKU GIMMS NDVI v1.2 (Li et al. 2023, *Earth Syst. Sci. Data* 15:4181–4203), CC-BY-4.0.
+* **Cropland (optional)** — ESA Climate Change Initiative / Copernicus Climate Change Service (C3S)
+  Land Cover, accessed via the Microsoft Planetary Computer. © ESA CCI / Copernicus C3S; used with
+  attribution.

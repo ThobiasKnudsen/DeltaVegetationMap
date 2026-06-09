@@ -24,13 +24,14 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import numpy as np
 import streamlit as st
 import zarr
 from matplotlib import colors
 from streamlit_folium import st_folium
 
 from ndvi_delta import build_cache, render
-from ndvi_delta.delta import compute_delta, summary_stats
+from ndvi_delta.delta import CROPLAND_VAR, compute_delta, summary_stats
 
 
 def _parse_args():
@@ -52,7 +53,14 @@ def stack_meta(stack_path: str):
     root = zarr.open_group(stack_path, mode="r")
     years = list(root.attrs["years"])
     built = sorted(root.attrs.get("built_year_indices", []))
-    return {"years": years, "built_years": [years[i] for i in built], "version": root.attrs.get("version")}
+    crop_built = sorted(root.attrs.get("built_cropland_indices", []))
+    return {
+        "years": years,
+        "built_years": [years[i] for i in built],
+        "version": root.attrs.get("version"),
+        "has_cropland": CROPLAND_VAR in root,
+        "cropland_years": [years[i] for i in crop_built],
+    }
 
 
 MERC_SIZE = 3000  # Web Mercator overlay resolution (px)
@@ -68,7 +76,20 @@ def compute(stack_path, pa, pb, fade_qc):
     if fade_qc:
         merc_rel, _ = render.reproject_to_web_mercator(res.reliability, res.transform_origin, size=MERC_SIZE)
         delta_rgba = render.fade_rgba_by_reliability(delta_rgba, merc_rel)
-    return _data_uri(delta_rgba), vlim, bounds, summary_stats(res)
+
+    out = {
+        "delta_uri": _data_uri(delta_rgba), "vlim": vlim, "bounds": bounds,
+        "stats": summary_stats(res),
+        "cropland_uri": None, "farmland_stats": None, "nonfarmland_stats": None,
+    }
+    if res.cropland_any is not None:
+        # 2 = cropland in both periods (solid blue), 1 = one period only (half blue), else NaN.
+        code = np.where(res.cropland_both, 2.0, np.where(res.cropland_one, 1.0, np.nan)).astype(np.float32)
+        merc_code, _ = render.reproject_to_web_mercator(code, res.transform_origin, size=MERC_SIZE)
+        out["cropland_uri"] = _data_uri(render.cropland_to_rgba(merc_code))
+        out["farmland_stats"] = summary_stats(res, region=res.cropland_any)
+        out["nonfarmland_stats"] = summary_stats(res, region=~res.cropland_any)
+    return out
 
 
 def _data_uri(rgba) -> str:
@@ -166,7 +187,21 @@ def main():
              "pixels fade toward the basemap instead of showing at full strength.",
     )
 
-    delta_uri, vlim, bounds, stats = compute(STACK_PATH, tuple(pa), tuple(pb), fade_qc)
+    # Cropland (ESA CCI/C3S) overlay — only offered when the layer is built for the chosen years.
+    period_years = set(range(pa[0], pa[1] + 1)) | set(range(pb[0], pb[1] + 1))
+    cropland_ready = meta["has_cropland"] and period_years.issubset(set(meta["cropland_years"]))
+    farmland_opacity = 0.0
+    if cropland_ready:
+        farmland_opacity = sb.slider(
+            "Cropland (blue) opacity", 0.0, 1.0, 0.5, 0.05,
+            help="ESA CCI/C3S cropland drawn in blue over the map. Solid = cropland in both "
+                 "periods; faint = cropland in only one period (newly farmed or abandoned).",
+        )
+        if min(period_years) < 1992 or max(period_years) > 2020:
+            sb.caption("⚠️ Cropland data covers 1992–2020; years outside it reuse the nearest year.")
+
+    r = compute(STACK_PATH, tuple(pa), tuple(pb), fade_qc)
+    delta_uri, vlim, bounds, stats = r["delta_uri"], r["vlim"], r["bounds"], r["stats"]
     south, west, north, east = bounds
 
     # ---- Stats + legend (sidebar) ----
@@ -192,6 +227,19 @@ def main():
             "Of all the greenness change — each pixel weighted by its land area and by how much it "
             "changed — this is the split between greening and browning."
         )
+        if r["farmland_stats"] is not None:
+            sb.divider()
+            sb.caption("**Split by land use** (cropland vs. the rest):")
+            for label, s in (("🌾 Farmland", r["farmland_stats"]),
+                             ("🌳 Non-farmland", r["nonfarmland_stats"])):
+                if s.get("valid_pixels", 0):
+                    sb.markdown(
+                        f"**{label}** · mean Δ {s['area_weighted_mean_delta']:+.4f}  \n"
+                        f"share 🟢 {s['greening_intensity_share']:.0f}% · "
+                        f"🔴 {s['browning_intensity_share']:.0f}%"
+                    )
+                else:
+                    sb.caption(f"**{label}** — none in view")
     else:
         sb.info("No valid pixels — adjust periods or thresholds.")
 
@@ -216,7 +264,7 @@ def main():
     # change we mount the map at wherever the user last left it (`map_mount`), updated only on a
     # data change. Mounting at the saved location (vs. feeding st_folium's center/zoom inputs) sets
     # the view at creation time, so there's no jump-to-default flash and no setView feedback loop.
-    data_sig = (tuple(pa), tuple(pb), fade_qc, delta_opacity)
+    data_sig = (tuple(pa), tuple(pb), fade_qc, delta_opacity, farmland_opacity)
     if st.session_state.get("map_data_sig") != data_sig:
         if st.session_state.get("map_view"):  # carry the live view into the next mount
             st.session_state["map_mount"] = st.session_state["map_view"]
@@ -233,6 +281,11 @@ def main():
         image=delta_uri, bounds=[[south, west], [north, east]],
         opacity=delta_opacity, name="ΔNDVI (B − A)",
     ).add_to(m)
+    if r["cropland_uri"] and farmland_opacity > 0:
+        folium.raster_layers.ImageOverlay(
+            image=r["cropland_uri"], bounds=[[south, west], [north, east]],
+            opacity=farmland_opacity, name="Cropland (ESA CCI/C3S)",
+        ).add_to(m)
     out = st_folium(
         m, key="ndvi_map", height=900, use_container_width=True,
         returned_objects=["center", "zoom"],

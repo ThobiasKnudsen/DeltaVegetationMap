@@ -90,6 +90,24 @@ def fade_rgba_by_reliability(rgba: np.ndarray, reliability: np.ndarray, strength
     return out
 
 
+# Cropland overlay colour: a strong blue, distinct from the red↔green ΔNDVI scale.
+CROPLAND_BLUE = (33, 102, 235)
+
+
+def cropland_to_rgba(code: np.ndarray, blue=CROPLAND_BLUE, one_alpha: int = 110,
+                     both_alpha: int = 210) -> np.ndarray:
+    """Blue RGBA overlay from a cropland *code* grid: ``2`` = cropland in both periods (solid
+    blue), ``1`` = cropland in exactly one period — new or abandoned (half-strength blue),
+    anything else / NaN = transparent. The app scales the whole overlay by the farmland-opacity
+    slider on top of these per-pixel alphas."""
+    code = np.asarray(code)
+    out = np.zeros(code.shape + (4,), dtype=np.uint8)
+    out[..., 0], out[..., 1], out[..., 2] = blue
+    out[code == 1, 3] = one_alpha
+    out[code == 2, 3] = both_alpha
+    return out
+
+
 def save_png(rgba: np.ndarray, path: str | Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

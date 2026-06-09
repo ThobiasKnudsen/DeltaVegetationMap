@@ -52,6 +52,15 @@ def cmd_build(args):
     print(f"\nstack ready: {path}")
 
 
+def cmd_build_cropland(args):
+    years = None
+    if args.years:
+        lo, hi = (int(v) for v in args.years.split("-"))
+        years = list(range(lo, hi + 1))
+    path = build_cache.build_cropland(args.data_dir, years=years)
+    print(f"\ncropland layer ready: {path}")
+
+
 def cmd_delta(args):
     pa, pb = tuple(args.period_a), tuple(args.period_b)
     required = list(range(min(pa[0], pb[0]), max(pa[1], pb[1]) + 1))
@@ -114,6 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
     pb = sub.add_parser("build", parents=[common], help="download data and build the per-year stack")
     pb.add_argument("--years", default=None, help="inclusive range, e.g. 1982-2022 (default: full record)")
     pb.set_defaults(func=cmd_build)
+
+    pc = sub.add_parser(
+        "build-cropland", parents=[common],
+        help="add the ESA CCI/C3S cropland layer to an existing stack (downloads land cover)",
+    )
+    pc.add_argument("--years", default=None, help="inclusive range, e.g. 1992-2020 (default: full stack)")
+    pc.set_defaults(func=cmd_build_cropland)
 
     pd = sub.add_parser("delta", parents=[common], help="export a static ΔNDVI GeoTIFF + PNG + stats")
     pd.add_argument("--period-a", type=int, nargs=2, required=True, metavar=("START", "END"))

@@ -26,6 +26,11 @@ from pathlib import Path
 import numpy as np
 import zarr
 
+# Optional per-year cropland-fraction layer (uint8 percent) written by build_cache.build_cropland.
+# Same string as landcover.STACK_VAR; duplicated here to keep this module import-light (no
+# rasterio/requests just to name a layer).
+CROPLAND_VAR = "cropland_pct"
+
 
 @dataclass
 class DeltaResult:
@@ -41,6 +46,10 @@ class DeltaResult:
     row_slice: slice
     col_slice: slice
     transform_origin: tuple[float, float, float]  # (west, north, pixel_deg) of the window
+    # Cropland masks (None unless the stack has a cropland layer covering both periods):
+    cropland_both: np.ndarray | None = None  # cropland in BOTH periods
+    cropland_one: np.ndarray | None = None   # cropland in exactly ONE period (new or abandoned)
+    cropland_any: np.ndarray | None = None   # cropland in EITHER period (the "farmland" region)
 
 
 def _period_indices(years: list[int], lo: int, hi: int) -> list[int]:
@@ -85,6 +94,11 @@ def _accumulate(root, key: str, idxs: list[int], rows: slice, cols: slice) -> np
     return acc
 
 
+def _period_cropland_fraction(root, idxs: list[int], rows: slice, cols: slice) -> np.ndarray:
+    """Mean cropland fraction (0..1) over a period's years, from the uint8-percent layer."""
+    return _accumulate(root, CROPLAND_VAR, idxs, rows, cols).astype(np.float32) / (100.0 * len(idxs))
+
+
 def compute_delta(
     stack_path: str | Path,
     period_a: tuple[int, int],
@@ -93,6 +107,7 @@ def compute_delta(
     mask_sparse: bool = True,
     sparse_threshold: float = 0.1,
     bbox: tuple[float, float, float, float] | None = None,
+    cropland_threshold: float = 0.5,
 ) -> DeltaResult:
     if fill_mode not in ("zero", "drop"):
         raise ValueError("fill_mode must be 'zero' or 'drop'.")
@@ -147,6 +162,17 @@ def compute_delta(
     reliability = _safe_div(good, good + interp + snow)
     reliability = np.where(land, reliability, np.nan).astype(np.float32)
 
+    # Optional cropland classification — only if the layer exists and covers both periods.
+    cropland_both = cropland_one = cropland_any = None
+    if CROPLAND_VAR in root:
+        built_c = set(root.attrs.get("built_cropland_indices", []))
+        if built_c.issuperset(ia) and built_c.issuperset(ib):
+            crop_a = _period_cropland_fraction(root, ia, rows, cols) >= cropland_threshold
+            crop_b = _period_cropland_fraction(root, ib, rows, cols) >= cropland_threshold
+            cropland_both = crop_a & crop_b & land
+            cropland_one = (crop_a ^ crop_b) & land   # new or abandoned
+            cropland_any = (crop_a | crop_b) & land    # the "farmland" region for the stats split
+
     west = attrs["west"] + cols.start * attrs["pixel_deg"]
     north = attrs["north"] - rows.start * attrs["pixel_deg"]
     return DeltaResult(
@@ -154,6 +180,7 @@ def compute_delta(
         obs_a=obs_a, obs_b=obs_b, years_a=tuple(period_a), years_b=tuple(period_b),
         fill_mode=fill_mode, row_slice=rows, col_slice=cols,
         transform_origin=(west, north, attrs["pixel_deg"]),
+        cropland_both=cropland_both, cropland_one=cropland_one, cropland_any=cropland_any,
     )
 
 
@@ -171,10 +198,15 @@ def row_latitudes(result: DeltaResult) -> np.ndarray:
     return north - (np.arange(h) + 0.5) * px
 
 
-def summary_stats(result: DeltaResult) -> dict:
-    """Greening/browning summary, both raw and cos(latitude) area-weighted."""
+def summary_stats(result: DeltaResult, region: np.ndarray | None = None) -> dict:
+    """Greening/browning summary, both raw and cos(latitude) area-weighted.
+
+    *region* optionally restricts the stats to a boolean sub-region (e.g. farmland vs. not);
+    if given, only finite-delta pixels inside it are counted."""
     delta = result.delta
     valid = np.isfinite(delta)
+    if region is not None:
+        valid = valid & region
     lat = row_latitudes(result)
     weight = np.cos(np.deg2rad(np.clip(lat, -89.999, 89.999)))
     w2d = np.broadcast_to(weight[:, None], delta.shape)
@@ -215,5 +247,5 @@ def summary_stats(result: DeltaResult) -> dict:
         "qc_weighted_browning_share": 100.0 * b_qc / tot_qc if tot_qc else 0.0,
         "mean_greening": g_mag / wg if wg else 0.0,
         "mean_browning": b_mag / wb if wb else 0.0,
-        "median_reliability": float(np.nanmedian(result.reliability)),
+        "median_reliability": float(np.nanmedian(result.reliability[valid])),
     }

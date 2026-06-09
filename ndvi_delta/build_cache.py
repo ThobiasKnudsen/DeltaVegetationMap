@@ -28,7 +28,7 @@ import numpy as np
 import zarr
 from tqdm import tqdm
 
-from . import zenodo
+from . import landcover, zenodo
 from .qc import GOOD, INTERPOLATED, SNOW_CLOUD, classify
 from .reader import (
     FILL_VALUE,
@@ -173,6 +173,47 @@ def build(
             root[name][yi] = grids[name]
         built.add(yi)
         root.attrs["built_year_indices"] = sorted(built)
+
+    return stack_path
+
+
+def build_cropland(
+    data_dir: str | Path = "data",
+    stack_path: str | Path | None = None,
+    years: list[int] | None = None,
+    resume: bool = True,
+) -> Path:
+    """Add/refresh the per-year ``cropland_pct`` layer (uint8 percent) in an existing stack,
+    from ESA CCI / C3S land cover via the Planetary Computer (see :mod:`ndvi_delta.landcover`).
+
+    The NDVI stack must already exist (run :func:`build` first). Years are aligned to the
+    stack's year axis; those outside the land-cover span (1992–2020) reuse the nearest
+    available year (the app flags that). The build is resumable per year.
+    """
+    stack_path = Path(stack_path) if stack_path else Path(data_dir) / "cache" / DEFAULT_STACK_NAME
+    if not stack_path.exists():
+        raise FileNotFoundError(f"No stack at {stack_path}; run `build` first.")
+
+    root = zarr.open_group(str(stack_path), mode="a")
+    stack_years = [int(y) for y in root.attrs["years"]]
+    if landcover.STACK_VAR not in root:
+        root.create_array(
+            landcover.STACK_VAR, shape=(len(stack_years), N_ROWS, N_COLS),
+            chunks=(1, N_ROWS, N_COLS), dtype="uint8",
+        )
+        root.attrs["built_cropland_indices"] = []
+
+    target = set(int(y) for y in years) if years else set(stack_years)
+    built = set(root.attrs.get("built_cropland_indices", []))
+    todo = [
+        (yi, y) for yi, y in enumerate(stack_years)
+        if y in target and (yi not in built or not resume)
+    ]
+    for yi, y in tqdm(todo, desc="cropland years", unit="yr"):
+        frac = landcover.cropland_fraction_for_year(y)
+        root[landcover.STACK_VAR][yi] = np.rint(frac * 100).astype(np.uint8)
+        built.add(yi)
+        root.attrs["built_cropland_indices"] = sorted(built)
 
     return stack_path
 
