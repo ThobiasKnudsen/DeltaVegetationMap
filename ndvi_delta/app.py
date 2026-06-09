@@ -126,8 +126,11 @@ def main():
 
     sb.header("Layers")
     delta_opacity = sb.slider("ΔNDVI opacity", 0.0, 1.0, 0.85, 0.05)
-    show_qc = sb.checkbox("Show QC reliability overlay", value=False)
-    qc_opacity = sb.slider("QC overlay opacity", 0.0, 1.0, 0.6, 0.05, disabled=not show_qc)
+    show_qc = sb.checkbox(
+        "Show QC reliability veil", value=False,
+        help="Darkens pixels you should distrust (gap-filled / snow / cloud) so reliable data shows through.",
+    )
+    qc_opacity = sb.slider("QC veil strength", 0.0, 1.0, 0.7, 0.05, disabled=not show_qc)
 
     needed = set(range(min(pa[0], pb[0]), max(pa[1], pb[1]) + 1))
     if not needed.issubset(set(meta["built_years"])):
@@ -157,7 +160,7 @@ def main():
         if show_qc:
             folium.raster_layers.ImageOverlay(
                 image=rel_uri, bounds=[[south, west], [north, east]],
-                opacity=qc_opacity, name="QC reliability",
+                opacity=qc_opacity, name="QC reliability veil",
             ).add_to(m)
         folium.LayerControl(collapsed=False).add_to(m)
         st_folium(m, height=560, returned_objects=[])
@@ -167,8 +170,9 @@ def main():
         st.pyplot(_colorbar_fig(vlim, "ΔNDVI (B − A)", "BrBG"), clear_figure=True)
         st.caption("teal = greening · brown = browning")
         if show_qc:
-            st.subheader("QC reliability")
-            st.pyplot(_colorbar_fig(1.0, "fraction good", "RdYlGn", from_zero=True), clear_figure=True)
+            st.subheader("QC reliability veil")
+            st.caption("Dark = low reliability (gap-filled / snow / cloud). "
+                       "Clear = direct measurement — trust what shows through.")
         st.subheader("Summary")
         if stats.get("valid_pixels", 0):
             st.metric("Area-weighted mean Δ", f"{stats['area_weighted_mean_delta']:+.4f}")

@@ -71,10 +71,17 @@ def delta_to_rgba(delta: np.ndarray, vlim: float | None = None, cmap: str = "BrB
     return _to_rgba(delta, norm, cmap), vlim
 
 
-def reliability_to_rgba(reliability: np.ndarray, cmap: str = "RdYlGn") -> np.ndarray:
-    """Sequential RGBA for the 0..1 QC reliability overlay (red = low, green = high)."""
-    norm = colors.Normalize(vmin=0.0, vmax=1.0)
-    return _to_rgba(reliability, norm, cmap)
+def reliability_to_rgba(reliability: np.ndarray) -> np.ndarray:
+    """Black 'reliability veil' for overlaying on the delta: opaque black where the data is
+    unreliable (fraction good -> 0) and transparent where reliable (-> 1), so only the pixels
+    you should distrust get darkened and the trustworthy data shows through. NaN (off-land)
+    is fully transparent."""
+    rel = np.asarray(reliability, dtype=np.float32)
+    alpha = np.clip(1.0 - rel, 0.0, 1.0)
+    alpha[~np.isfinite(rel)] = 0.0
+    rgba = np.zeros((*rel.shape, 4), dtype=np.uint8)  # RGB stays 0 -> black
+    rgba[..., 3] = (alpha * 255.0).astype(np.uint8)
+    return rgba
 
 
 def save_png(rgba: np.ndarray, path: str | Path) -> Path:
