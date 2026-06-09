@@ -86,8 +86,9 @@ python -m ndvi_delta delta --period-a 1983 1987 --period-b 2018 2022
   reprojection). The app draws cropland in **blue**, with each pixel's opacity scaling to its
   cropland *fraction* (and cropland present in *both* periods shown stronger than newly-farmed or
   abandoned land), plus its own opacity slider, and **splits the stats into farmland vs.
-  non-farmland** so you can see how much of the change is agricultural. Periods before 1992 reuse
-  the nearest available land-cover year (the app flags this).
+  non-farmland** — weighting each pixel by its cropland fraction (a 30%-cropland pixel counts 0.3
+  toward farmland, 0.7 toward the rest) — so you can see how much of the change is agricultural.
+  Periods before 1992 reuse the nearest available land-cover year (the app flags this).
 * **Stats** are reported both raw and **area-weighted by cos(latitude)** so high-latitude pixels
   don't dominate.
 

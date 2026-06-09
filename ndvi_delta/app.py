@@ -86,8 +86,9 @@ def compute(stack_path, pa, pb, fade_qc):
         # Gradual blue: per-pixel alpha tracks the cropland fraction (NaN -> transparent).
         merc_alpha, _ = render.reproject_to_web_mercator(res.cropland_alpha, res.transform_origin, size=MERC_SIZE)
         out["cropland_uri"] = _data_uri(render.cropland_to_rgba(merc_alpha))
-        out["farmland_stats"] = summary_stats(res, region=res.cropland_any)
-        out["nonfarmland_stats"] = summary_stats(res, region=~res.cropland_any)
+        # Fractional split: weight each pixel by its cropland fraction (and 1 − fraction).
+        out["farmland_stats"] = summary_stats(res, weights=res.cropland_alpha)
+        out["nonfarmland_stats"] = summary_stats(res, weights=1.0 - res.cropland_alpha)
     return out
 
 
@@ -232,7 +233,7 @@ def main():
         )
         if r["farmland_stats"] is not None:
             sb.divider()
-            sb.caption("**Split by land use** (cropland vs. the rest):")
+            sb.caption("**Split by land use** — each pixel weighted by its cropland fraction:")
             for label, s in (("🌾 Farmland", r["farmland_stats"]),
                              ("🌳 Non-farmland", r["nonfarmland_stats"])):
                 if s.get("valid_pixels", 0):

@@ -218,29 +218,31 @@ class TestCroplandDelta(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    def test_cropland_alpha_and_region(self):
+    def test_cropland_alpha(self):
         res = compute_delta(self.path, (2000, 2000), (2010, 2010), mask_sparse=False)
         a = res.cropland_alpha[0]
         self.assertTrue(np.isnan(a[0]))               # ocean -> none
-        self.assertAlmostEqual(a[1], 1.0, places=5)   # cropland in both periods -> full
-        self.assertAlmostEqual(a[2], 0.5, places=5)   # new in B only -> half
+        self.assertAlmostEqual(a[1], 1.0, places=5)   # cropland both periods -> full (mean 1,1)
+        self.assertAlmostEqual(a[2], 0.5, places=5)   # new in B only -> half (mean of 0 and 1)
         self.assertAlmostEqual(a[3], 0.0, places=5)   # never cropland -> none
-        self.assertEqual(res.cropland_any.tolist(), [[False, True, True, False]])  # stats region
 
-    def test_split_stats(self):
+    def test_split_stats_weighted_by_fraction(self):
         res = compute_delta(self.path, (2000, 2000), (2010, 2010), mask_sparse=False)
-        farm = summary_stats(res, region=res.cropland_any)    # pixel1 (Δ0) + pixel2 (Δ+0.25)
-        rest = summary_stats(res, region=~res.cropland_any)   # pixel3 (Δ-0.25); ocean excluded
+        farm = summary_stats(res, weights=res.cropland_alpha)        # fraction weights: p1=1, p2=0.5
+        rest = summary_stats(res, weights=1.0 - res.cropland_alpha)  # 1−fraction: p2=0.5, p3=1
+        # Farmland: pixel1 (Δ0, w1) + pixel2 (Δ+0.25, w0.5) -> only greening present.
         self.assertEqual(farm["valid_pixels"], 2)
         self.assertAlmostEqual(farm["greening_intensity_share"], 100.0)
-        self.assertEqual(rest["valid_pixels"], 1)
-        self.assertAlmostEqual(rest["browning_intensity_share"], 100.0)
+        # Non-farmland: pixel2 (Δ+0.25, w0.5) + pixel3 (Δ−0.25, w1) -> 1/3 greening, 2/3 browning.
+        self.assertEqual(rest["valid_pixels"], 2)
+        self.assertAlmostEqual(rest["greening_intensity_share"], 100.0 / 3, places=4)
+        self.assertAlmostEqual(rest["browning_intensity_share"], 200.0 / 3, places=4)
 
     def test_absent_when_period_not_cropland_built(self):
         root = zarr.open_group(self.path, mode="a")
         root.attrs["built_cropland_indices"] = [0]   # 2010 not cropland-built -> can't classify
         res = compute_delta(self.path, (2000, 2000), (2010, 2010), mask_sparse=False)
-        self.assertIsNone(res.cropland_any)
+        self.assertIsNone(res.cropland_alpha)
 
 
 if __name__ == "__main__":

@@ -46,9 +46,10 @@ class DeltaResult:
     row_slice: slice
     col_slice: slice
     transform_origin: tuple[float, float, float]  # (west, north, pixel_deg) of the window
-    # Cropland (None unless the stack has a cropland layer covering both periods):
-    cropland_alpha: np.ndarray | None = None  # 0..1 gradual blue intensity per pixel; NaN off-land
-    cropland_any: np.ndarray | None = None    # cropland >= threshold in EITHER period (stats split)
+    # Mean cropland fraction over the two periods (0..1; NaN off-land), or None if the stack has
+    # no cropland layer covering both periods. Drives both the gradual blue overlay alpha and the
+    # fractional farmland-vs-rest stat weighting.
+    cropland_alpha: np.ndarray | None = None
 
 
 def _period_indices(years: list[int], lo: int, hi: int) -> list[int]:
@@ -106,7 +107,6 @@ def compute_delta(
     mask_sparse: bool = True,
     sparse_threshold: float = 0.1,
     bbox: tuple[float, float, float, float] | None = None,
-    cropland_threshold: float = 0.5,
 ) -> DeltaResult:
     if fill_mode not in ("zero", "drop"):
         raise ValueError("fill_mode must be 'zero' or 'drop'.")
@@ -161,21 +161,18 @@ def compute_delta(
     reliability = _safe_div(good, good + interp + snow)
     reliability = np.where(land, reliability, np.nan).astype(np.float32)
 
-    # Optional cropland — only if the layer exists and covers both periods.
-    cropland_alpha = cropland_any = None
+    # Optional cropland fraction — only if the layer exists and covers both periods. Per pixel we
+    # take the mean cropland fraction over the two periods, 0.5*(fa+fb) — which is identically
+    # min(fa,fb)+0.5*|fa-fb|, i.e. cropland present in both periods weighed full and gained/lost
+    # cropland half. A 30%-cropland pixel is faint and a 90% one strong; the same fraction weights
+    # the farmland stat split (a 30% pixel counts 0.3 farmland, 0.7 not).
+    cropland_alpha = None
     if CROPLAND_VAR in root:
         built_c = set(root.attrs.get("built_cropland_indices", []))
         if built_c.issuperset(ia) and built_c.issuperset(ib):
             fa = _period_cropland_fraction(root, ia, rows, cols)
             fb = _period_cropland_fraction(root, ib, rows, cols)
-            # Gradual blue intensity: cropland present in BOTH periods (= min) counts at full
-            # weight; cropland that changed — gained or lost (= |Δ|) — counts at half. This
-            # generalises the old binary "both = full, new/abandoned = half" to the actual
-            # fractions, so a 30%-cropland pixel is faint and a 90% one is strong.
-            alpha = np.clip(np.minimum(fa, fb) + 0.5 * np.abs(fa - fb), 0.0, 1.0)
-            cropland_alpha = np.where(land, alpha, np.nan).astype(np.float32)
-            # Stats still need a yes/no farmland region: cropland >= threshold in either period.
-            cropland_any = ((fa >= cropland_threshold) | (fb >= cropland_threshold)) & land
+            cropland_alpha = np.where(land, np.clip(0.5 * (fa + fb), 0.0, 1.0), np.nan).astype(np.float32)
 
     west = attrs["west"] + cols.start * attrs["pixel_deg"]
     north = attrs["north"] - rows.start * attrs["pixel_deg"]
@@ -184,7 +181,7 @@ def compute_delta(
         obs_a=obs_a, obs_b=obs_b, years_a=tuple(period_a), years_b=tuple(period_b),
         fill_mode=fill_mode, row_slice=rows, col_slice=cols,
         transform_origin=(west, north, attrs["pixel_deg"]),
-        cropland_alpha=cropland_alpha, cropland_any=cropland_any,
+        cropland_alpha=cropland_alpha,
     )
 
 
@@ -202,18 +199,20 @@ def row_latitudes(result: DeltaResult) -> np.ndarray:
     return north - (np.arange(h) + 0.5) * px
 
 
-def summary_stats(result: DeltaResult, region: np.ndarray | None = None) -> dict:
+def summary_stats(result: DeltaResult, weights: np.ndarray | None = None) -> dict:
     """Greening/browning summary, both raw and cos(latitude) area-weighted.
 
-    *region* optionally restricts the stats to a boolean sub-region (e.g. farmland vs. not);
-    if given, only finite-delta pixels inside it are counted."""
+    *weights* optionally multiplies each pixel's area weight (NaN treated as 0). Pass a 0..1
+    cropland-fraction grid for fractional farmland stats: a 30%-cropland pixel then contributes
+    0.3 of its weight to the farmland summary and 0.7 (= 1 − fraction) to the non-farmland one."""
     delta = result.delta
     valid = np.isfinite(delta)
-    if region is not None:
-        valid = valid & region
     lat = row_latitudes(result)
-    weight = np.cos(np.deg2rad(np.clip(lat, -89.999, 89.999)))
-    w2d = np.broadcast_to(weight[:, None], delta.shape)
+    aw = np.cos(np.deg2rad(np.clip(lat, -89.999, 89.999))).astype(np.float32)
+    w2d = np.broadcast_to(aw[:, None], delta.shape).astype(np.float32)
+    if weights is not None:
+        w2d = w2d * np.nan_to_num(np.asarray(weights, dtype=np.float32), nan=0.0)
+    valid = valid & (w2d > 0)
 
     n = int(valid.sum())
     if n == 0:
