@@ -100,6 +100,16 @@ def _colorbar_fig(vlim, label, cmap, from_zero=False):
     return fig
 
 
+@st.cache_resource
+def base_map():
+    """A stable base map, cached so it's identical across reruns. The ΔNDVI layer is added
+    separately (feature_group_to_add), so updating the data never re-renders the map or its view."""
+    return folium.Map(
+        location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
+        zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
+    )
+
+
 def main():
     st.set_page_config(
         page_title="Global ΔNDVI explorer", layout="wide", initial_sidebar_state="expanded"
@@ -190,38 +200,18 @@ def main():
             "latitudes (no Antarctica)."
         )
 
-    # ---- Full-screen map: finer zoom step + a view that persists across data changes ----
-    # Only push center/zoom into the map when the *data* changes (new periods / fade / opacity).
-    # On plain pan/zoom reruns we pass center=zoom=None and don't write state back, so the map
-    # never fights the user (which otherwise oscillates).
-    if "view" not in st.session_state:
-        st.session_state["view"] = {"center": [25, 5], "zoom": 3.0}
-        st.session_state["data_sig"] = None
-    data_sig = (tuple(pa), tuple(pb), fade_qc, delta_opacity)
-    recenter = data_sig != st.session_state["data_sig"]
-    st.session_state["data_sig"] = data_sig
-    view = st.session_state["view"]
-
-    m = folium.Map(
-        location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
-        zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
-    )
+    # ---- Full-screen map: stable cached base map + dynamic overlay (no flicker, view persists) ----
+    # The base map never changes, so st_folium only updates the ΔNDVI feature group on top of it.
+    # The Leaflet view is left untouched: pan/zoom stays client-side (no rerun, no fade), and
+    # changing the data swaps just the overlay without moving the map.
+    fg = folium.FeatureGroup(name="ΔNDVI (B − A)")
     folium.raster_layers.ImageOverlay(
-        image=delta_uri, bounds=[[south, west], [north, east]],
-        opacity=delta_opacity, name="ΔNDVI (B − A)",
-    ).add_to(m)
-    out = st_folium(
-        m, key="ndvi_map", height=900, use_container_width=True,
-        center=view["center"] if recenter else None,
-        zoom=view["zoom"] if recenter else None,
-        returned_objects=["center", "zoom"],
+        image=delta_uri, bounds=[[south, west], [north, east]], opacity=delta_opacity,
+    ).add_to(fg)
+    st_folium(
+        base_map(), feature_group_to_add=fg, key="ndvi_map",
+        height=900, use_container_width=True, returned_objects=[],
     )
-    if out and out.get("center") and not recenter:
-        z = out.get("zoom")
-        st.session_state["view"] = {
-            "center": [out["center"]["lat"], out["center"]["lng"]],
-            "zoom": z if z is not None else view["zoom"],
-        }
 
 
 main()
