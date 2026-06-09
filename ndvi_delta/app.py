@@ -289,7 +289,15 @@ def main():
         folium.raster_layers.ImageOverlay(
             image=r["cropland_uri"], bounds=[[south, west], [north, east]],
             opacity=farmland_opacity, name="Cropland (ESA CCI/C3S)",
+            className="cropland-blend",
         ).add_to(m)
+        # Blend the blue with the red/green delta per-channel (lighten = max), not paint-over, so
+        # cropland over browning reads magenta and over greening reads cyan — the blue channel
+        # only ever raises, it never darkens the red/green. CSS lives in the map's own <head> so
+        # it reaches the Leaflet <img> inside the st_folium iframe.
+        m.get_root().header.add_child(folium.Element(
+            "<style>.cropland-blend{mix-blend-mode:lighten;}</style>"
+        ))
     out = st_folium(
         m, key="ndvi_map", height=900, use_container_width=True,
         returned_objects=["center", "zoom"],

@@ -83,8 +83,9 @@ python -m ndvi_delta delta --period-a 1983 1987 --period-b 2018 2022
   fraction** from [ESA CCI / C3S Land Cover](https://cds.climate.copernicus.eu/) (300 m, annual
   1992–2020, read as Cloud-Optimized GeoTIFFs from the Microsoft Planetary Computer — anonymous,
   no account). It aggregates to the NDVI grid (each pixel is a clean 30×30 block, no
-  reprojection). The app draws cropland in **blue**, with each pixel's opacity scaling to its
-  cropland *fraction* (and cropland present in *both* periods shown stronger than newly-farmed or
+  reprojection). The app draws cropland in **blue**, blended per-channel (lighten) with the map so
+  it reads **magenta** over browning and **cyan** over greening rather than muddy purple, with each
+  pixel's opacity scaling to its cropland *fraction* (and cropland present in *both* periods shown stronger than newly-farmed or
   abandoned land), plus its own opacity slider, and **splits the stats into farmland vs.
   non-farmland** — weighting each pixel by its cropland fraction (a 30%-cropland pixel counts 0.3
   toward farmland, 0.7 toward the rest) — so you can see how much of the change is agricultural.
