@@ -190,9 +190,18 @@ def main():
             "latitudes (no Antarctica)."
         )
 
-    # ---- Full-screen map (main area): finer zoom step + a view that persists across reruns ----
-    if "center" not in st.session_state:
-        st.session_state["center"], st.session_state["zoom"] = [25, 5], 3.0
+    # ---- Full-screen map: finer zoom step + a view that persists across data changes ----
+    # Only push center/zoom into the map when the *data* changes (new periods / fade / opacity).
+    # On plain pan/zoom reruns we pass center=zoom=None and don't write state back, so the map
+    # never fights the user (which otherwise oscillates).
+    if "view" not in st.session_state:
+        st.session_state["view"] = {"center": [25, 5], "zoom": 3.0}
+        st.session_state["data_sig"] = None
+    data_sig = (tuple(pa), tuple(pb), fade_qc, delta_opacity)
+    recenter = data_sig != st.session_state["data_sig"]
+    st.session_state["data_sig"] = data_sig
+    view = st.session_state["view"]
+
     m = folium.Map(
         location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
         zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
@@ -203,14 +212,16 @@ def main():
     ).add_to(m)
     out = st_folium(
         m, key="ndvi_map", height=900, use_container_width=True,
-        center=st.session_state["center"], zoom=st.session_state["zoom"],
+        center=view["center"] if recenter else None,
+        zoom=view["zoom"] if recenter else None,
         returned_objects=["center", "zoom"],
     )
-    if out:
-        if out.get("center"):
-            st.session_state["center"] = [out["center"]["lat"], out["center"]["lng"]]
-        if out.get("zoom") is not None:
-            st.session_state["zoom"] = out["zoom"]
+    if out and out.get("center") and not recenter:
+        z = out.get("zoom")
+        st.session_state["view"] = {
+            "center": [out["center"]["lat"], out["center"]["lng"]],
+            "zoom": z if z is not None else view["zoom"],
+        }
 
 
 main()
