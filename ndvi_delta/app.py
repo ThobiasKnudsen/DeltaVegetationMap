@@ -100,16 +100,6 @@ def _colorbar_fig(vlim, label, cmap, from_zero=False):
     return fig
 
 
-@st.cache_resource
-def base_map():
-    """A stable base map, cached so it's identical across reruns. The ΔNDVI layer is added
-    separately (feature_group_to_add), so updating the data never re-renders the map or its view."""
-    return folium.Map(
-        location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
-        zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
-    )
-
-
 def main():
     st.set_page_config(
         page_title="Global ΔNDVI explorer", layout="wide", initial_sidebar_state="expanded"
@@ -200,18 +190,20 @@ def main():
             "latitudes (no Antarctica)."
         )
 
-    # ---- Full-screen map: stable cached base map + dynamic overlay (no flicker, view persists) ----
-    # The base map never changes, so st_folium only updates the ΔNDVI feature group on top of it.
-    # The Leaflet view is left untouched: pan/zoom stays client-side (no rerun, no fade), and
-    # changing the data swaps just the overlay without moving the map.
-    fg = folium.FeatureGroup(name="ΔNDVI (B − A)")
-    folium.raster_layers.ImageOverlay(
-        image=delta_uri, bounds=[[south, west], [north, east]], opacity=delta_opacity,
-    ).add_to(fg)
-    st_folium(
-        base_map(), feature_group_to_add=fg, key="ndvi_map",
-        height=900, use_container_width=True, returned_objects=[],
+    # ---- Full-screen map ----
+    # The ImageOverlay is baked into the map (feature_group_to_add can't render raster overlays).
+    # returned_objects=[] -> pan/zoom never triggers a rerun, so it's smooth with no flicker. The
+    # view does reset to the default extent when the data changes (the map is rebuilt); keeping it
+    # without flicker would require a tile-based overlay.
+    m = folium.Map(
+        location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
+        zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
     )
+    folium.raster_layers.ImageOverlay(
+        image=delta_uri, bounds=[[south, west], [north, east]],
+        opacity=delta_opacity, name="ΔNDVI (B − A)",
+    ).add_to(m)
+    st_folium(m, key="ndvi_map", height=900, use_container_width=True, returned_objects=[])
 
 
 main()
