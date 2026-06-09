@@ -128,7 +128,22 @@ def main():
     yr_lo, yr_hi = meta["built_years"][0], meta["built_years"][-1]
     sb = st.sidebar
     sb.title("Global ΔNDVI explorer")
-    sb.caption("PKU GIMMS NDVI V1.2 · greening ↔ browning between two periods")
+    sb.caption("Where the land got greener or browner between two periods you choose.")
+
+    with sb.expander("ℹ️ New here? What the words mean", expanded=True):
+        st.markdown(
+            "- **The map** shows the *change in greenness* between two time periods. "
+            "🟢 green = the land got **greener** (more plant cover), 🔴 red = it got **browner**.\n"
+            "- **NDVI** is a satellite measure of how green/leafy the land is — higher means more "
+            "living vegetation. This tool maps the *change* in it, written **ΔNDVI** "
+            "(\"delta-NDVI\") = period B − period A.\n"
+            "- **Period A / Period B** are the two time windows you compare with the sliders below. "
+            "Wider windows (≥5 years) are steadier than single years.\n"
+            "- **PKU GIMMS NDVI** is just the name of the dataset behind the map — a global "
+            "satellite greenness record (from Peking University), covering 1982–2022.\n"
+            "- **QC (quality control)** is how trustworthy each pixel is: a clean satellite reading "
+            "vs. one filled in through cloud or snow. The QC toggle fades the shakier pixels."
+        )
 
     # ---- Settings ----
     pa = sb.slider("Period A", yr_lo, yr_hi, (yr_lo, min(yr_lo + 4, yr_hi)))
@@ -157,7 +172,14 @@ def main():
     # ---- Stats + legend (sidebar) ----
     sb.divider()
     if stats.get("valid_pixels", 0):
-        sb.metric("Area-weighted mean Δ", f"{stats['area_weighted_mean_delta']:+.4f}")
+        sb.metric(
+            "Area-weighted mean Δ",
+            f"{stats['area_weighted_mean_delta']:+.4f}",
+            help="Average greenness change across all visible land, with each pixel weighted by "
+            "its true ground area (cos-latitude) so large high-latitude pixels don't count for "
+            "more than they actually cover. Positive = net greening, negative = net browning; "
+            "the value is in NDVI units (the index runs −1 to 1).",
+        )
         sb.markdown(
             f"**By land area** 🟢 {stats['area_weighted_pct_greening']:.0f}% greening · "
             f"🔴 {stats['area_weighted_pct_browning']:.0f}% browning  \n"
@@ -191,19 +213,42 @@ def main():
         )
 
     # ---- Full-screen map ----
-    # The ImageOverlay is baked into the map (feature_group_to_add can't render raster overlays).
-    # returned_objects=[] -> pan/zoom never triggers a rerun, so it's smooth with no flicker. The
-    # view does reset to the default extent when the data changes (the map is rebuilt); keeping it
-    # without flicker would require a tile-based overlay.
+    # The ImageOverlay is baked into the map (feature_group_to_add can't render raster overlays),
+    # so st_folium re-mounts the iframe whenever the map HTML changes. We exploit that: the HTML
+    # only changes when the *data* changes (overlay/opacity), not when the user pans — so panning
+    # re-runs the script but never re-mounts, staying flicker-free. To keep the view across a data
+    # change we mount the map at wherever the user last left it (`map_mount`), updated only on a
+    # data change. Mounting at the saved location (vs. feeding st_folium's center/zoom inputs) sets
+    # the view at creation time, so there's no jump-to-default flash and no setView feedback loop.
+    data_sig = (tuple(pa), tuple(pb), fade_qc, delta_opacity)
+    if st.session_state.get("map_data_sig") != data_sig:
+        if st.session_state.get("map_view"):  # carry the live view into the next mount
+            st.session_state["map_mount"] = st.session_state["map_view"]
+        st.session_state["map_data_sig"] = data_sig
+    mount = st.session_state.get("map_mount")
+
     m = folium.Map(
-        location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True,
+        location=mount["center"] if mount else [25, 5],
+        zoom_start=mount["zoom"] if mount else 3,
+        tiles="CartoDB positron", world_copy_jump=True,
         zoomSnap=0.25, zoomDelta=0.25, wheelPxPerZoomLevel=120,
     )
     folium.raster_layers.ImageOverlay(
         image=delta_uri, bounds=[[south, west], [north, east]],
         opacity=delta_opacity, name="ΔNDVI (B − A)",
     ).add_to(m)
-    st_folium(m, key="ndvi_map", height=900, use_container_width=True, returned_objects=[])
+    out = st_folium(
+        m, key="ndvi_map", height=900, use_container_width=True,
+        returned_objects=["center", "zoom"],
+    )
+    # Remember where the user is now (true Leaflet center, so no Web-Mercator drift) so the next
+    # data update can re-mount in place.
+    if out:
+        center, zoom = out.get("center"), out.get("zoom")
+        if center and zoom is not None:
+            st.session_state["map_view"] = {
+                "center": [center["lat"], center["lng"]], "zoom": zoom
+            }
 
 
 main()
