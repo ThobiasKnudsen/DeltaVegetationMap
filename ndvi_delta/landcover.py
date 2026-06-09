@@ -104,6 +104,21 @@ def _sign(href: str, tries: int = 4, timeout: int = 30) -> str:
     raise IOError(f"Planetary Computer signing failed ({last}) for {href}")
 
 
+def _read_tile(feat: dict, read_window: Window | None = None, tries: int = 4) -> np.ndarray:
+    """Sign and stream one tile's ``lccs_class`` band, retrying transient network / GDAL errors
+    (and re-signing each attempt, in case a SAS token expired during a long build)."""
+    last = None
+    for i in range(tries):
+        try:
+            signed = _sign(feat["assets"]["lccs_class"]["href"])
+            with rasterio.open("/vsicurl/" + signed) as ds:
+                return ds.read(1, window=read_window)
+        except Exception as e:  # noqa: BLE001 — rasterio/GDAL + network errors; retry then re-raise
+            last = e
+            time.sleep(3 * (i + 1))
+    raise IOError(f"Failed to read tile {feat.get('id')}: {last!r}")
+
+
 def _place(frac: np.ndarray, sub: np.ndarray, bbox) -> None:
     """Drop a tile's aggregated fraction *sub* into the global grid *frac* at its bbox origin.
     The grid is north-up (row 0 = +90°), so the tile's top edge is its max latitude."""
@@ -122,8 +137,6 @@ def cropland_fraction_for_year(year: int, read_window: Window | None = None) -> 
     src_year = min(max(int(year), CCI_YEAR_MIN), CCI_YEAR_MAX)
     frac = np.zeros((N_ROWS, N_COLS), dtype=np.float32)
     for feat in _search_year(src_year):
-        signed = _sign(feat["assets"]["lccs_class"]["href"])
-        with rasterio.open("/vsicurl/" + signed) as ds:
-            lccs = ds.read(1, window=read_window)
+        lccs = _read_tile(feat, read_window)
         _place(frac, aggregate_fraction(cropland_mask(lccs)), feat["bbox"])
     return frac

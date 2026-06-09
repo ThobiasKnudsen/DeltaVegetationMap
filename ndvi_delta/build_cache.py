@@ -209,10 +209,18 @@ def build_cropland(
         (yi, y) for yi, y in enumerate(stack_years)
         if y in target and (yi not in built or not resume)
     ]
-    for yi, y in tqdm(todo, desc="cropland years", unit="yr"):
-        frac = landcover.cropland_fraction_for_year(y)
-        root[landcover.STACK_VAR][yi] = np.rint(frac * 100).astype(np.uint8)
-        built.add(yi)
+    # Group target stack-years by their source land-cover year (clamped to 1992–2020), so years
+    # outside the CCI span reuse one download instead of re-fetching the same maps repeatedly.
+    by_src: dict[int, list[int]] = {}
+    for yi, y in todo:
+        src = min(max(y, landcover.CCI_YEAR_MIN), landcover.CCI_YEAR_MAX)
+        by_src.setdefault(src, []).append(yi)
+
+    for src in tqdm(sorted(by_src), desc="cropland years", unit="yr"):
+        frac_pct = np.rint(landcover.cropland_fraction_for_year(src) * 100).astype(np.uint8)
+        for yi in by_src[src]:
+            root[landcover.STACK_VAR][yi] = frac_pct
+            built.add(yi)
         root.attrs["built_cropland_indices"] = sorted(built)
 
     return stack_path
