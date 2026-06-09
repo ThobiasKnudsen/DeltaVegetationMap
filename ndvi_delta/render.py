@@ -78,17 +78,16 @@ def delta_to_rgba(delta: np.ndarray, vlim: float | None = None, cmap=DELTA_CMAP)
     return _to_rgba(delta, norm, cmap), vlim
 
 
-def reliability_to_rgba(reliability: np.ndarray) -> np.ndarray:
-    """Black 'reliability veil' for overlaying on the delta: opaque black where the data is
-    unreliable (fraction good -> 0) and transparent where reliable (-> 1), so only the pixels
-    you should distrust get darkened and the trustworthy data shows through. NaN (off-land)
-    is fully transparent."""
-    rel = np.asarray(reliability, dtype=np.float32)
-    alpha = np.clip(1.0 - rel, 0.0, 1.0)
-    alpha[~np.isfinite(rel)] = 0.0
-    rgba = np.zeros((*rel.shape, 4), dtype=np.uint8)  # RGB stays 0 -> black
-    rgba[..., 3] = (alpha * 255.0).astype(np.uint8)
-    return rgba
+def fade_rgba_by_reliability(rgba: np.ndarray, reliability: np.ndarray, strength: float = 1.0) -> np.ndarray:
+    """Fade an RGBA by QC reliability: multiply each pixel's alpha by its reliability (0..1) so
+    low-confidence pixels dissolve toward transparent (the basemap shows through) instead of
+    being shown at full strength. *strength* interpolates between no fade (0) and the full
+    reliability multiply (1). NaN reliability (off-land) -> 0 (treated as fully unreliable)."""
+    rel = np.nan_to_num(np.asarray(reliability, dtype=np.float32), nan=0.0)
+    factor = np.clip((1.0 - strength) + strength * rel, 0.0, 1.0)
+    out = rgba.copy()
+    out[..., 3] = (out[..., 3].astype(np.float32) * factor).astype(np.uint8)
+    return out
 
 
 def save_png(rgba: np.ndarray, path: str | Path) -> Path:

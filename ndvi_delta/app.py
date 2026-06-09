@@ -56,15 +56,22 @@ def stack_meta(stack_path: str):
 
 
 @st.cache_data(show_spinner="Computing ΔNDVI…")
-def compute(stack_path, pa, pb, fill_mode, mask_sparse, thr):
+def compute_layers(stack_path, pa, pb, fill_mode, mask_sparse, thr):
     res = compute_delta(stack_path, pa, pb, fill_mode=fill_mode, mask_sparse=mask_sparse, sparse_threshold=thr)
     vlim = render.robust_limit(res.delta)
     # Reproject to Web Mercator so the overlay aligns with the Leaflet (EPSG:3857) basemap.
     merc_delta, bounds = render.reproject_to_web_mercator(res.delta, res.transform_origin)
     merc_rel, _ = render.reproject_to_web_mercator(res.reliability, res.transform_origin)
-    delta_uri = _data_uri(render.delta_to_rgba(merc_delta, vlim=vlim)[0])
-    rel_uri = _data_uri(render.reliability_to_rgba(merc_rel))
-    return delta_uri, rel_uri, vlim, bounds, summary_stats(res)
+    delta_rgba = render.delta_to_rgba(merc_delta, vlim=vlim)[0]
+    return delta_rgba, merc_rel, vlim, bounds, summary_stats(res)
+
+
+@st.cache_data
+def delta_overlay_uri(stack_path, pa, pb, fill_mode, mask_sparse, thr, fade_qc, qc_strength):
+    """Delta overlay as a PNG data URI, optionally faded toward transparent by QC reliability."""
+    delta_rgba, merc_rel, _, _, _ = compute_layers(stack_path, pa, pb, fill_mode, mask_sparse, thr)
+    rgba = render.fade_rgba_by_reliability(delta_rgba, merc_rel, qc_strength) if fade_qc else delta_rgba
+    return _data_uri(rgba)
 
 
 def _data_uri(rgba) -> str:
@@ -148,14 +155,18 @@ def main():
     mask_sparse = sb.checkbox("Mask sparse vegetation", value=True)
     thr = sb.number_input("Sparse threshold (NDVI)", 0.0, 0.5, 0.1, 0.01, disabled=not mask_sparse)
     delta_opacity = sb.slider("ΔNDVI opacity", 0.0, 1.0, 0.85, 0.05)
-    show_qc = sb.checkbox(
-        "Show QC reliability veil", value=False,
-        help="Darkens pixels you should distrust (gap-filled / snow / cloud) so reliable data shows through.",
+    fade_qc = sb.checkbox(
+        "Fade unreliable data (QC)", value=False,
+        help="Multiplies each pixel's opacity by its QC reliability, so gap-filled / snow / cloud "
+             "pixels fade toward the basemap instead of showing at full strength.",
     )
-    qc_opacity = sb.slider("QC veil strength", 0.0, 1.0, 0.7, 0.05, disabled=not show_qc)
+    qc_strength = sb.slider("QC fade strength", 0.0, 1.0, 1.0, 0.05, disabled=not fade_qc)
 
-    delta_uri, rel_uri, vlim, bounds, stats = compute(
+    _, _, vlim, bounds, stats = compute_layers(
         STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr)
+    )
+    delta_uri = delta_overlay_uri(
+        STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr), fade_qc, float(qc_strength)
     )
     south, west, north, east = bounds
 
@@ -184,8 +195,8 @@ def main():
 
     sb.pyplot(_colorbar_fig(vlim, "ΔNDVI (B − A)", render.DELTA_CMAP), clear_figure=True)
     sb.caption("green = greening · red = browning")
-    if show_qc:
-        sb.caption("**QC veil:** dark = low reliability (gap-filled / snow / cloud); clear = direct measurement.")
+    if fade_qc:
+        sb.caption("**QC fade:** faint = low reliability (gap-filled / snow / cloud); solid = direct measurement.")
 
     with sb.expander("ℹ️ Interpretation notes"):
         st.caption(
@@ -201,12 +212,6 @@ def main():
         image=delta_uri, bounds=[[south, west], [north, east]],
         opacity=delta_opacity, name="ΔNDVI (B − A)",
     ).add_to(m)
-    if show_qc:
-        folium.raster_layers.ImageOverlay(
-            image=rel_uri, bounds=[[south, west], [north, east]],
-            opacity=qc_opacity, name="QC reliability veil",
-        ).add_to(m)
-    folium.LayerControl(collapsed=True).add_to(m)
     st_folium(m, height=900, returned_objects=[], use_container_width=True)
 
 
