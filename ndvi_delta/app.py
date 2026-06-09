@@ -167,15 +167,17 @@ def main():
             f"**By land area** 🟢 {stats['area_weighted_pct_greening']:.0f}% greening · "
             f"🔴 {stats['area_weighted_pct_browning']:.0f}% browning  \n"
             f"**By magnitude** 🟢 {stats['greening_intensity_share']:.0f}% · "
-            f"🔴 {stats['browning_intensity_share']:.0f}%"
+            f"🔴 {stats['browning_intensity_share']:.0f}%  \n"
+            f"**By magnitude × QC** 🟢 {stats['qc_weighted_greening_share']:.0f}% · "
+            f"🔴 {stats['qc_weighted_browning_share']:.0f}%"
         )
         sb.caption(
             f"mean greening +{stats['mean_greening']:.3f} · mean browning −{stats['mean_browning']:.3f}  \n"
             f"{stats['valid_pixels']:,} px · median QC reliability {stats['median_reliability']:.2f}"
         )
         sb.caption(
-            "*By area* = share of land by sign of change. "
-            "*By magnitude* = share of total ΔNDVI (weights bigger changes more)."
+            "*By area* = share of land by sign. *By magnitude* = share of total ΔNDVI. "
+            "*× QC* = magnitude also weighted by reliability — confident data counts more."
         )
     else:
         sb.info("No valid pixels — adjust periods or thresholds.")

@@ -195,6 +195,12 @@ def summary_stats(result: DeltaResult) -> dict:
     g_mag = float((d[greening] * w[greening]).sum())
     b_mag = float((-d[browning] * w[browning]).sum())
     tot_mag = g_mag + b_mag
+    # Reliability-weighted: also scale each pixel by its QC reliability (0..1), so greening/
+    # browning we are confident in counts more than noisy/gap-filled pixels. NaN -> 0 (distrust).
+    rel = np.clip(np.nan_to_num(result.reliability[valid], nan=0.0), 0.0, 1.0)
+    g_qc = float((d[greening] * w[greening] * rel[greening]).sum())
+    b_qc = float((-d[browning] * w[browning] * rel[browning]).sum())
+    tot_qc = g_qc + b_qc
     return {
         "valid_pixels": n,
         "mean_delta": float(d.mean()),
@@ -205,6 +211,8 @@ def summary_stats(result: DeltaResult) -> dict:
         "area_weighted_pct_browning": 100.0 * wb / wsum,
         "greening_intensity_share": 100.0 * g_mag / tot_mag if tot_mag else 0.0,
         "browning_intensity_share": 100.0 * b_mag / tot_mag if tot_mag else 0.0,
+        "qc_weighted_greening_share": 100.0 * g_qc / tot_qc if tot_qc else 0.0,
+        "qc_weighted_browning_share": 100.0 * b_qc / tot_qc if tot_qc else 0.0,
         "mean_greening": g_mag / wg if wg else 0.0,
         "mean_browning": b_mag / wb if wb else 0.0,
         "median_reliability": float(np.nanmedian(result.reliability)),
