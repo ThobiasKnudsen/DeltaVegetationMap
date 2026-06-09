@@ -55,23 +55,20 @@ def stack_meta(stack_path: str):
     return {"years": years, "built_years": [years[i] for i in built], "version": root.attrs.get("version")}
 
 
-@st.cache_data(show_spinner="Computing ΔNDVI…")
-def compute_layers(stack_path, pa, pb, fill_mode, mask_sparse, thr):
+MERC_SIZE = 6000  # Web Mercator overlay resolution (px); above native 4320 so regional zoom stays sharp
+
+
+@st.cache_data(show_spinner="Computing ΔNDVI…", max_entries=16)
+def compute(stack_path, pa, pb, fill_mode, mask_sparse, thr, fade_qc):
     res = compute_delta(stack_path, pa, pb, fill_mode=fill_mode, mask_sparse=mask_sparse, sparse_threshold=thr)
     vlim = render.robust_limit(res.delta)
     # Reproject to Web Mercator so the overlay aligns with the Leaflet (EPSG:3857) basemap.
-    merc_delta, bounds = render.reproject_to_web_mercator(res.delta, res.transform_origin)
-    merc_rel, _ = render.reproject_to_web_mercator(res.reliability, res.transform_origin)
+    merc_delta, bounds = render.reproject_to_web_mercator(res.delta, res.transform_origin, size=MERC_SIZE)
     delta_rgba = render.delta_to_rgba(merc_delta, vlim=vlim)[0]
-    return delta_rgba, merc_rel, vlim, bounds, summary_stats(res)
-
-
-@st.cache_data
-def delta_overlay_uri(stack_path, pa, pb, fill_mode, mask_sparse, thr, fade_qc, qc_strength):
-    """Delta overlay as a PNG data URI, optionally faded toward transparent by QC reliability."""
-    delta_rgba, merc_rel, _, _, _ = compute_layers(stack_path, pa, pb, fill_mode, mask_sparse, thr)
-    rgba = render.fade_rgba_by_reliability(delta_rgba, merc_rel, qc_strength) if fade_qc else delta_rgba
-    return _data_uri(rgba)
+    if fade_qc:
+        merc_rel, _ = render.reproject_to_web_mercator(res.reliability, res.transform_origin, size=MERC_SIZE)
+        delta_rgba = render.fade_rgba_by_reliability(delta_rgba, merc_rel)
+    return _data_uri(delta_rgba), vlim, bounds, summary_stats(res)
 
 
 def _data_uri(rgba) -> str:
@@ -160,13 +157,9 @@ def main():
         help="Multiplies each pixel's opacity by its QC reliability, so gap-filled / snow / cloud "
              "pixels fade toward the basemap instead of showing at full strength.",
     )
-    qc_strength = sb.slider("QC fade strength", 0.0, 1.0, 1.0, 0.05, disabled=not fade_qc)
 
-    _, _, vlim, bounds, stats = compute_layers(
-        STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr)
-    )
-    delta_uri = delta_overlay_uri(
-        STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr), fade_qc, float(qc_strength)
+    delta_uri, vlim, bounds, stats = compute(
+        STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr), fade_qc
     )
     south, west, north, east = bounds
 
