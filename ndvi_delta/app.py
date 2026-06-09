@@ -30,7 +30,7 @@ from matplotlib import colors
 from streamlit_folium import st_folium
 
 from ndvi_delta import build_cache, render
-from ndvi_delta.delta import compute_delta, summary_stats, window_bounds
+from ndvi_delta.delta import compute_delta, summary_stats
 
 
 def _parse_args():
@@ -97,9 +97,21 @@ def _colorbar_fig(vlim, label, cmap, from_zero=False):
 
 
 def main():
-    st.set_page_config(page_title="Global ΔNDVI explorer", layout="wide")
-    st.title("Global greenness ΔNDVI explorer")
-    st.caption("PKU GIMMS NDVI V1.2 (1982–2022) · per-pixel greening ↔ browning between two periods.")
+    st.set_page_config(
+        page_title="Global ΔNDVI explorer", layout="wide", initial_sidebar_state="expanded"
+    )
+    # Map fills the screen; everything else lives in the collapsible left sidebar.
+    st.markdown(
+        """
+        <style>
+          header[data-testid="stHeader"] {height: 0; visibility: hidden;}
+          [data-testid="stToolbar"] {display: none;}
+          .block-container {padding: 0.4rem 0.6rem 0 0.6rem; max-width: 100%;}
+          .stApp iframe {height: 93vh !important; width: 100% !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     meta = stack_meta(STACK_PATH)
     if meta is None or not meta["built_years"]:
@@ -111,21 +123,30 @@ def main():
 
     yr_lo, yr_hi = meta["built_years"][0], meta["built_years"][-1]
     sb = st.sidebar
+    sb.title("Global ΔNDVI explorer")
+    sb.caption("PKU GIMMS NDVI V1.2 · greening ↔ browning between two periods")
 
-    sb.header("Periods")
+    # ---- Settings ----
     pa = sb.slider("Period A", yr_lo, yr_hi, (yr_lo, min(yr_lo + 4, yr_hi)))
     pb = sb.slider("Period B", yr_lo, yr_hi, (max(yr_hi - 4, yr_lo), yr_hi))
 
-    sb.header("Method")
+    needed = set(range(min(pa[0], pb[0]), max(pa[1], pb[1]) + 1))
+    if not needed.issubset(set(meta["built_years"])):
+        sb.warning(f"Stack covers {yr_lo}–{yr_hi}; some selected years aren't built yet.")
+        st.stop()
+    if _crosses_seam(pa, pb):
+        sb.warning(
+            "⚠️ **AVHRR→MODIS seam.** These periods straddle ~2002/2003 (AVHRR→MODIS). "
+            "Residual inter-sensor bias is the main uncertainty for cross-seam deltas."
+        )
+
     fill_mode = sb.radio(
-        "Fill handling", ["zero", "drop"],
+        "Fill handling", ["zero", "drop"], horizontal=True,
         help="zero: count dormant/snow half-months as 0 — captures growing-season change (default). "
              "drop: average greenness only when green.",
     )
     mask_sparse = sb.checkbox("Mask sparse vegetation", value=True)
     thr = sb.number_input("Sparse threshold (NDVI)", 0.0, 0.5, 0.1, 0.01, disabled=not mask_sparse)
-
-    sb.header("Layers")
     delta_opacity = sb.slider("ΔNDVI opacity", 0.0, 1.0, 0.85, 0.05)
     show_qc = sb.checkbox(
         "Show QC reliability veil", value=False,
@@ -133,63 +154,58 @@ def main():
     )
     qc_opacity = sb.slider("QC veil strength", 0.0, 1.0, 0.7, 0.05, disabled=not show_qc)
 
-    needed = set(range(min(pa[0], pb[0]), max(pa[1], pb[1]) + 1))
-    if not needed.issubset(set(meta["built_years"])):
-        st.warning(f"Stack covers {yr_lo}–{yr_hi}; some selected years aren't built yet.")
-        st.stop()
-
-    if _crosses_seam(pa, pb):
-        st.warning(
-            "⚠️ **AVHRR→MODIS seam.** These periods straddle the ~2002/2003 boundary where the product "
-            "switches from AVHRR (1982–2002) to MODIS (2003–2022). It is engineered to be consistent "
-            "across this seam, but residual inter-sensor bias is the dominant uncertainty for "
-            "early-vs-late comparisons — interpret cross-seam deltas with care."
-        )
-
     delta_uri, rel_uri, vlim, bounds, stats = compute(
         STACK_PATH, tuple(pa), tuple(pb), fill_mode, mask_sparse, float(thr)
     )
     south, west, north, east = bounds
 
-    col_map, col_side = st.columns([3, 1])
-    with col_map:
-        m = folium.Map(location=[20, 10], zoom_start=2, tiles="CartoDB positron", world_copy_jump=True)
+    # ---- Stats + legend (sidebar) ----
+    sb.divider()
+    if stats.get("valid_pixels", 0):
+        sb.metric("Area-weighted mean Δ", f"{stats['area_weighted_mean_delta']:+.4f}")
+        sb.markdown(
+            f"**By land area** 🟢 {stats['area_weighted_pct_greening']:.0f}% greening · "
+            f"🔴 {stats['area_weighted_pct_browning']:.0f}% browning  \n"
+            f"**By magnitude** 🟢 {stats['greening_intensity_share']:.0f}% · "
+            f"🔴 {stats['browning_intensity_share']:.0f}%"
+        )
+        sb.caption(
+            f"mean greening +{stats['mean_greening']:.3f} · mean browning −{stats['mean_browning']:.3f}  \n"
+            f"{stats['valid_pixels']:,} px · median QC reliability {stats['median_reliability']:.2f}"
+        )
+        sb.caption(
+            "*By area* = share of land by sign of change. "
+            "*By magnitude* = share of total ΔNDVI (weights bigger changes more)."
+        )
+    else:
+        sb.info("No valid pixels — adjust periods or thresholds.")
+
+    sb.pyplot(_colorbar_fig(vlim, "ΔNDVI (B − A)", render.DELTA_CMAP), clear_figure=True)
+    sb.caption("green = greening · red = browning")
+    if show_qc:
+        sb.caption("**QC veil:** dark = low reliability (gap-filled / snow / cloud); clear = direct measurement.")
+
+    with sb.expander("ℹ️ Interpretation notes"):
+        st.caption(
+            "An NDVI delta measures change in greenness/productivity — not land health, soil, or "
+            "biodiversity; a positive delta can coexist with degradation. Two-window deltas are "
+            "endpoint-sensitive — prefer ≥5-year windows. Coverage stops at the high southern "
+            "latitudes (no Antarctica)."
+        )
+
+    # ---- Full-screen map (main area) ----
+    m = folium.Map(location=[25, 5], zoom_start=3, tiles="CartoDB positron", world_copy_jump=True)
+    folium.raster_layers.ImageOverlay(
+        image=delta_uri, bounds=[[south, west], [north, east]],
+        opacity=delta_opacity, name="ΔNDVI (B − A)",
+    ).add_to(m)
+    if show_qc:
         folium.raster_layers.ImageOverlay(
-            image=delta_uri, bounds=[[south, west], [north, east]],
-            opacity=delta_opacity, name="ΔNDVI (B − A)",
+            image=rel_uri, bounds=[[south, west], [north, east]],
+            opacity=qc_opacity, name="QC reliability veil",
         ).add_to(m)
-        if show_qc:
-            folium.raster_layers.ImageOverlay(
-                image=rel_uri, bounds=[[south, west], [north, east]],
-                opacity=qc_opacity, name="QC reliability veil",
-            ).add_to(m)
-        folium.LayerControl(collapsed=False).add_to(m)
-        st_folium(m, height=560, returned_objects=[])
-
-    with col_side:
-        st.subheader("ΔNDVI scale")
-        st.pyplot(_colorbar_fig(vlim, "ΔNDVI (B − A)", render.DELTA_CMAP), clear_figure=True)
-        st.caption("green = greening · red = browning")
-        if show_qc:
-            st.subheader("QC reliability veil")
-            st.caption("Dark = low reliability (gap-filled / snow / cloud). "
-                       "Clear = direct measurement — trust what shows through.")
-        st.subheader("Summary")
-        if stats.get("valid_pixels", 0):
-            st.metric("Area-weighted mean Δ", f"{stats['area_weighted_mean_delta']:+.4f}")
-            st.metric("Greening (area-wt)", f"{stats['area_weighted_pct_greening']:.1f}%")
-            st.metric("Browning (area-wt)", f"{stats['area_weighted_pct_browning']:.1f}%")
-            st.metric("Median QC reliability", f"{stats['median_reliability']:.2f}")
-            st.caption(f"{stats['valid_pixels']:,} valid pixels")
-        else:
-            st.info("No valid pixels — adjust periods or thresholds.")
-
-    st.caption(
-        "An NDVI delta measures change in greenness/productivity — not land health, soil, or "
-        "biodiversity; a positive delta can coexist with degradation. Two-window deltas are "
-        "endpoint-sensitive — prefer ≥5-year windows. Coverage stops at the high southern latitudes "
-        "(no Antarctica)."
-    )
+    folium.LayerControl(collapsed=True).add_to(m)
+    st_folium(m, height=900, returned_objects=[])
 
 
 main()

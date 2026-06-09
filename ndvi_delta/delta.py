@@ -188,13 +188,24 @@ def summary_stats(result: DeltaResult) -> dict:
     wsum = float(w.sum())
     greening = d > 0
     browning = d < 0
+    wg = float(w[greening].sum())
+    wb = float(w[browning].sum())
+    # Magnitude-weighted: how much of the total (area-weighted) |ΔNDVI| is greening vs browning,
+    # so a pixel that changed a lot counts more than one that barely moved.
+    g_mag = float((d[greening] * w[greening]).sum())
+    b_mag = float((-d[browning] * w[browning]).sum())
+    tot_mag = g_mag + b_mag
     return {
         "valid_pixels": n,
         "mean_delta": float(d.mean()),
         "area_weighted_mean_delta": float((d * w).sum() / wsum),
         "pct_greening": 100.0 * float(greening.sum()) / n,
         "pct_browning": 100.0 * float(browning.sum()) / n,
-        "area_weighted_pct_greening": 100.0 * float(w[greening].sum()) / wsum,
-        "area_weighted_pct_browning": 100.0 * float(w[browning].sum()) / wsum,
+        "area_weighted_pct_greening": 100.0 * wg / wsum,
+        "area_weighted_pct_browning": 100.0 * wb / wsum,
+        "greening_intensity_share": 100.0 * g_mag / tot_mag if tot_mag else 0.0,
+        "browning_intensity_share": 100.0 * b_mag / tot_mag if tot_mag else 0.0,
+        "mean_greening": g_mag / wg if wg else 0.0,
+        "mean_browning": b_mag / wb if wb else 0.0,
         "median_reliability": float(np.nanmedian(result.reliability)),
     }
