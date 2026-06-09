@@ -13,7 +13,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
 from matplotlib import colors
-from rasterio.transform import from_origin
+from rasterio.transform import from_bounds, from_origin
+from rasterio.warp import Resampling, reproject
+
+# Web Mercator (EPSG:3857) world extent: half-width in metres and the latitude it clips at.
+_MERC_MAX = 20037508.342789244
+_MERC_LAT = 85.051128779806604
 
 
 def robust_limit(delta: np.ndarray, pct: float = 99.0) -> float:
@@ -23,6 +28,31 @@ def robust_limit(delta: np.ndarray, pct: float = 99.0) -> float:
         return 1e-6
     v = float(np.percentile(np.abs(finite), pct))
     return v if v > 0 else 1e-6
+
+
+def reproject_to_web_mercator(values: np.ndarray, transform_origin, size: int = 3000):
+    """Reproject an EPSG:4326 grid (NaN nodata) onto a square Web Mercator (EPSG:3857) grid
+    covering the full world extent, so it aligns with a Leaflet/folium Mercator basemap.
+
+    Returns ``(merc_values, bounds_latlon)`` where bounds_latlon is
+    ``(south, west, north, east)`` for the image overlay (latitude clips at ±85.05°).
+    """
+    west, north, px = transform_origin
+    src_transform = from_origin(west, north, px, px)
+    dst_transform = from_bounds(-_MERC_MAX, -_MERC_MAX, _MERC_MAX, _MERC_MAX, size, size)
+    dst = np.full((size, size), np.nan, dtype=np.float32)
+    reproject(
+        source=np.ascontiguousarray(values, dtype=np.float32),
+        destination=dst,
+        src_transform=src_transform,
+        src_crs="EPSG:4326",
+        dst_transform=dst_transform,
+        dst_crs="EPSG:3857",
+        src_nodata=float("nan"),
+        dst_nodata=float("nan"),
+        resampling=Resampling.nearest,
+    )
+    return dst, (-_MERC_LAT, -180.0, _MERC_LAT, 180.0)
 
 
 def _to_rgba(values: np.ndarray, norm, cmap_name: str) -> np.ndarray:

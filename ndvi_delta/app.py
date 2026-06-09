@@ -59,9 +59,12 @@ def stack_meta(stack_path: str):
 def compute(stack_path, pa, pb, fill_mode, mask_sparse, thr):
     res = compute_delta(stack_path, pa, pb, fill_mode=fill_mode, mask_sparse=mask_sparse, sparse_threshold=thr)
     vlim = render.robust_limit(res.delta)
-    delta_uri = _data_uri(render.delta_to_rgba(res.delta, vlim=vlim)[0])
-    rel_uri = _data_uri(render.reliability_to_rgba(res.reliability))
-    return delta_uri, rel_uri, vlim, window_bounds(res), summary_stats(res)
+    # Reproject to Web Mercator so the overlay aligns with the Leaflet (EPSG:3857) basemap.
+    merc_delta, bounds = render.reproject_to_web_mercator(res.delta, res.transform_origin)
+    merc_rel, _ = render.reproject_to_web_mercator(res.reliability, res.transform_origin)
+    delta_uri = _data_uri(render.delta_to_rgba(merc_delta, vlim=vlim)[0])
+    rel_uri = _data_uri(render.reliability_to_rgba(merc_rel))
+    return delta_uri, rel_uri, vlim, bounds, summary_stats(res)
 
 
 def _data_uri(rgba) -> str:
