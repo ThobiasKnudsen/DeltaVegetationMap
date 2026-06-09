@@ -46,10 +46,9 @@ class DeltaResult:
     row_slice: slice
     col_slice: slice
     transform_origin: tuple[float, float, float]  # (west, north, pixel_deg) of the window
-    # Cropland masks (None unless the stack has a cropland layer covering both periods):
-    cropland_both: np.ndarray | None = None  # cropland in BOTH periods
-    cropland_one: np.ndarray | None = None   # cropland in exactly ONE period (new or abandoned)
-    cropland_any: np.ndarray | None = None   # cropland in EITHER period (the "farmland" region)
+    # Cropland (None unless the stack has a cropland layer covering both periods):
+    cropland_alpha: np.ndarray | None = None  # 0..1 gradual blue intensity per pixel; NaN off-land
+    cropland_any: np.ndarray | None = None    # cropland >= threshold in EITHER period (stats split)
 
 
 def _period_indices(years: list[int], lo: int, hi: int) -> list[int]:
@@ -162,16 +161,21 @@ def compute_delta(
     reliability = _safe_div(good, good + interp + snow)
     reliability = np.where(land, reliability, np.nan).astype(np.float32)
 
-    # Optional cropland classification — only if the layer exists and covers both periods.
-    cropland_both = cropland_one = cropland_any = None
+    # Optional cropland — only if the layer exists and covers both periods.
+    cropland_alpha = cropland_any = None
     if CROPLAND_VAR in root:
         built_c = set(root.attrs.get("built_cropland_indices", []))
         if built_c.issuperset(ia) and built_c.issuperset(ib):
-            crop_a = _period_cropland_fraction(root, ia, rows, cols) >= cropland_threshold
-            crop_b = _period_cropland_fraction(root, ib, rows, cols) >= cropland_threshold
-            cropland_both = crop_a & crop_b & land
-            cropland_one = (crop_a ^ crop_b) & land   # new or abandoned
-            cropland_any = (crop_a | crop_b) & land    # the "farmland" region for the stats split
+            fa = _period_cropland_fraction(root, ia, rows, cols)
+            fb = _period_cropland_fraction(root, ib, rows, cols)
+            # Gradual blue intensity: cropland present in BOTH periods (= min) counts at full
+            # weight; cropland that changed — gained or lost (= |Δ|) — counts at half. This
+            # generalises the old binary "both = full, new/abandoned = half" to the actual
+            # fractions, so a 30%-cropland pixel is faint and a 90% one is strong.
+            alpha = np.clip(np.minimum(fa, fb) + 0.5 * np.abs(fa - fb), 0.0, 1.0)
+            cropland_alpha = np.where(land, alpha, np.nan).astype(np.float32)
+            # Stats still need a yes/no farmland region: cropland >= threshold in either period.
+            cropland_any = ((fa >= cropland_threshold) | (fb >= cropland_threshold)) & land
 
     west = attrs["west"] + cols.start * attrs["pixel_deg"]
     north = attrs["north"] - rows.start * attrs["pixel_deg"]
@@ -180,7 +184,7 @@ def compute_delta(
         obs_a=obs_a, obs_b=obs_b, years_a=tuple(period_a), years_b=tuple(period_b),
         fill_mode=fill_mode, row_slice=rows, col_slice=cols,
         transform_origin=(west, north, attrs["pixel_deg"]),
-        cropland_both=cropland_both, cropland_one=cropland_one, cropland_any=cropland_any,
+        cropland_alpha=cropland_alpha, cropland_any=cropland_any,
     )
 
 

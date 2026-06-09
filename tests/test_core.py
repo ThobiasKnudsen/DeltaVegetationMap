@@ -175,11 +175,11 @@ class TestLandcover(unittest.TestCase):
 
 class TestRenderCropland(unittest.TestCase):
     def test_cropland_to_rgba(self):
-        rgba = render.cropland_to_rgba(np.array([[np.nan, 1.0, 2.0]], dtype=np.float32))
+        rgba = render.cropland_to_rgba(np.array([[np.nan, 0.4, 1.0]], dtype=np.float32))
         self.assertEqual(rgba.shape, (1, 3, 4))
-        self.assertEqual(rgba[0, 0, 3], 0)      # none -> transparent
-        self.assertEqual(rgba[0, 1, 3], 110)    # one period -> half blue
-        self.assertEqual(rgba[0, 2, 3], 210)    # both periods -> solid blue
+        self.assertEqual(rgba[0, 0, 3], 0)                  # none -> transparent
+        self.assertEqual(rgba[0, 1, 3], round(0.4 * 255))   # 40% cropland -> ~102 alpha
+        self.assertEqual(rgba[0, 2, 3], 255)                # 100% cropland -> full alpha
         self.assertEqual(tuple(rgba[0, 2, :3]), render.CROPLAND_BLUE)
 
 
@@ -218,11 +218,14 @@ class TestCroplandDelta(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    def test_classification(self):
+    def test_cropland_alpha_and_region(self):
         res = compute_delta(self.path, (2000, 2000), (2010, 2010), mask_sparse=False)
-        self.assertEqual(res.cropland_both.tolist(), [[False, True, False, False]])
-        self.assertEqual(res.cropland_one.tolist(), [[False, False, True, False]])  # new in B
-        self.assertEqual(res.cropland_any.tolist(), [[False, True, True, False]])
+        a = res.cropland_alpha[0]
+        self.assertTrue(np.isnan(a[0]))               # ocean -> none
+        self.assertAlmostEqual(a[1], 1.0, places=5)   # cropland in both periods -> full
+        self.assertAlmostEqual(a[2], 0.5, places=5)   # new in B only -> half
+        self.assertAlmostEqual(a[3], 0.0, places=5)   # never cropland -> none
+        self.assertEqual(res.cropland_any.tolist(), [[False, True, True, False]])  # stats region
 
     def test_split_stats(self):
         res = compute_delta(self.path, (2000, 2000), (2010, 2010), mask_sparse=False)

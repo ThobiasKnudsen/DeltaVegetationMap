@@ -82,11 +82,10 @@ def compute(stack_path, pa, pb, fade_qc):
         "stats": summary_stats(res),
         "cropland_uri": None, "farmland_stats": None, "nonfarmland_stats": None,
     }
-    if res.cropland_any is not None:
-        # 2 = cropland in both periods (solid blue), 1 = one period only (half blue), else NaN.
-        code = np.where(res.cropland_both, 2.0, np.where(res.cropland_one, 1.0, np.nan)).astype(np.float32)
-        merc_code, _ = render.reproject_to_web_mercator(code, res.transform_origin, size=MERC_SIZE)
-        out["cropland_uri"] = _data_uri(render.cropland_to_rgba(merc_code))
+    if res.cropland_alpha is not None:
+        # Gradual blue: per-pixel alpha tracks the cropland fraction (NaN -> transparent).
+        merc_alpha, _ = render.reproject_to_web_mercator(res.cropland_alpha, res.transform_origin, size=MERC_SIZE)
+        out["cropland_uri"] = _data_uri(render.cropland_to_rgba(merc_alpha))
         out["farmland_stats"] = summary_stats(res, region=res.cropland_any)
         out["nonfarmland_stats"] = summary_stats(res, region=~res.cropland_any)
     return out
@@ -197,8 +196,9 @@ def main():
     if cropland_ready:
         farmland_opacity = sb.slider(
             "Cropland (blue) opacity", 0.0, 1.0, 0.5, 0.05,
-            help="ESA CCI/C3S cropland drawn in blue over the map. Solid = cropland in both "
-                 "periods; faint = cropland in only one period (newly farmed or abandoned).",
+            help="ESA CCI/C3S cropland in blue. Each pixel's blue strength scales with how much "
+                 "of it is cropland — and cropland present in both periods shows stronger than "
+                 "newly-farmed or abandoned land. This slider scales the whole overlay on top.",
         )
         if min(period_years) < 1992 or max(period_years) > 2020:
             sb.caption("⚠️ Cropland data covers 1992–2020; years outside it reuse the nearest year.")
