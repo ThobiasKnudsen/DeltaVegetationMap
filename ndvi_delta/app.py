@@ -205,7 +205,7 @@ def main():
             opacity=qc_opacity, name="QC reliability veil",
         ).add_to(m)
     folium.LayerControl(collapsed=True).add_to(m)
-    st_folium(m, height=900, returned_objects=[])
+    st_folium(m, height=900, returned_objects=[], use_container_width=True)
 
 
 main()
