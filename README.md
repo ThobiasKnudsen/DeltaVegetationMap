@@ -151,10 +151,14 @@ python -m ndvi_delta app    [--version ...] [--data-dir ...]
 
 ## Interpretation caveats (please read)
 
-* An NDVI delta measures **change in greenness/productivity** — **not** land "health", soil
-  condition, biodiversity, or vegetation height/structure. A **positive** delta can coexist with
-  land degradation (the classic Sahel case: greening on sandy soils alongside woody-species
-  impoverishment and erosion on shallow soils).
+* An NDVI delta measures **change in greenness/productivity**, which genuinely **correlates** with
+  soil condition, biodiversity, and vegetation structure — they all build on green vegetation, so a
+  greening trend is usually *some* real good news. But NDVI doesn't **directly measure** any of them,
+  and the link breaks in the cases that matter most: a **cropland or monoculture** can be lush yet
+  species-poor; NDVI **saturates** over dense canopy, so it can't separate a tall forest from low
+  scrub (height needs LiDAR like GEDI); and soil/subsoil legacy damage stays invisible. So a
+  **positive** delta *can* still coexist with land degradation — the classic Sahel case: greening
+  alongside woody-species impoverishment and erosion on shallow soils.
 * **…but the Sahel has an optimistic side too.** Dryland greening has real physical drivers likely
   to persist, not just rebound or artefact: rising **CO₂ raises plants' water-use efficiency** (more
   growth per drop of water — a big deal in drylands), and many (not all) climate models project a
