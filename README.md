@@ -156,17 +156,10 @@ python -m ndvi_delta app    [--version ...] [--data-dir ...]
   greening trend is usually *some* real good news. But NDVI doesn't **directly measure** any of them,
   and the link breaks in the cases that matter most: a **cropland or monoculture** can be lush yet
   species-poor; NDVI **saturates** over dense canopy, so it can't separate a tall forest from low
-  scrub (height needs LiDAR like GEDI); and soil/subsoil legacy damage stays invisible. So a
-  **positive** delta *can* still coexist with land degradation — the classic Sahel case: greening
-  alongside woody-species impoverishment and erosion on shallow soils.
-* **…but the Sahel has an optimistic side too.** Dryland greening has real physical drivers likely
-  to persist, not just rebound or artefact: rising **CO₂ raises plants' water-use efficiency** (more
-  growth per drop of water — a big deal in drylands), and many (not all) climate models project a
-  **wetter, further-north West African monsoon** as the world warms — the "Green Sahara" of ~6,000
-  years ago shows the monsoon *can* reach deep into the desert. So a greener Sahel may well be a
-  durable trend. Both can hold at once: real, physically-driven greening that *still* doesn't by
-  itself prove soil, biodiversity, or human wellbeing improved — so treat ΔNDVI as a starting
-  question, not a verdict.
+  scrub (height needs LiDAR like GEDI); and soil/subsoil legacy damage stays invisible. That cropland
+  confound is exactly why the tool maps **where farmland is** and reports greening/browning
+  **separately for farmland and non-farmland** — so you can see how much of a trend is agriculture
+  rather than natural change.
 * A two-window delta is **endpoint-sensitive** (wet vs. dry years, ENSO phase). Prefer multi-year
   windows (**≥5 years**) to average out interannual variability.
 * **Sparse-vegetation pixels (NDVI < 0.1) are noisy** — masking them is recommended by the data
